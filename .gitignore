@@ -1,0 +1,6 @@
+dataset/
+venv/
+__pycache__/
+*.pyc
+IMG_9453.JPG
+test.JPG

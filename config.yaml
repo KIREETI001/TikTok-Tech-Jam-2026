@@ -19,6 +19,15 @@ learning_rate: 0.00001
 weight_decay: 0.01
 num_workers: 0
 
+# Fraction of training samples that get one randomly-severity JPEG
+# re-encode / blur / noise / resize-roundtrip corruption applied before
+# the usual crop/flip/color-jitter augmentation (see
+# detector/transforms.py's _RandomRobustnessAugment). 0 disables it.
+# Added to close a measured robustness gap: blur_sigma2 dropped to ~60%
+# accuracy and noise_sigma0.05/0.10 missed ~49% of AI images at eval time
+# with this at 0, on both the held-out validation split and Data/test.
+train_augment_probability: 0.7
+
 threshold: 0.50
 pretrained: true
 local_files_only: false

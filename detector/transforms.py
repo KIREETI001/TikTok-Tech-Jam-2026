@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from io import BytesIO
 from typing import Final
 
@@ -129,11 +130,60 @@ def build_eval_transform(condition: str = "clean", *, seed: int = 0) -> T.Compos
     return T.Compose([_ApplyCondition(condition, seed), *_native_tail()])
 
 
-def build_train_transform() -> T.Compose:
-    """Native-sized preprocessing with a small amount of common augmentation."""
+class _RandomRobustnessAugment:
+    """Randomly applies one realistic corruption -- JPEG re-encode, blur,
+    Gaussian noise, or a downsample/upsample round-trip -- per training
+    sample, at a randomly sampled severity spanning the same range the
+    fixed-severity evaluation matrix (CONDITION_SPECS) tests.
+
+    Applied *before* the Resize/RandomCrop step below, mirroring
+    build_eval_transform's operation order (apply_condition also runs
+    before its own Resize/CenterCrop) -- otherwise the same nominal
+    severity (e.g. "blur sigma 2") would mean a different effective amount
+    of blur at eval time than at train time, since blurring a 224x224 crop
+    is not the same as blurring the original image and then downscaling.
+
+    Without this, the model never saw these corruptions during training
+    and was fragile to them at eval time (measured: blur_sigma2 dropped to
+    ~60% accuracy, noise_sigma0.05/0.10 missed ~49% of AI images) -- this
+    exists specifically to close that gap.
+    """
+
+    _CORRUPTIONS = ("jpeg", "blur", "noise", "resize")
+
+    def __init__(self, probability: float = 0.7) -> None:
+        if not 0.0 <= probability <= 1.0:
+            raise ValueError("probability must be between 0 and 1.")
+        self.probability = probability
+
+    def __call__(self, image: Image.Image) -> Image.Image:
+        source = image.convert("RGB")
+        if random.random() >= self.probability:
+            return source
+
+        corruption = random.choice(self._CORRUPTIONS)
+        if corruption == "jpeg":
+            return _jpeg(source, random.randint(30, 100))
+        if corruption == "blur":
+            return source.filter(ImageFilter.GaussianBlur(radius=random.uniform(0.0, 2.0)))
+        if corruption == "noise":
+            return _gaussian_noise(source, random.uniform(0.0, 0.10), random.randint(0, 2**31 - 1))
+        if corruption == "resize":
+            return _resize_round_trip(source, random.uniform(0.25, 1.0))
+        raise AssertionError(f"Unhandled corruption: {corruption}")
+
+
+def build_train_transform(augment_probability: float = 0.7) -> T.Compose:
+    """Native-sized preprocessing with realistic-corruption augmentation
+    (see _RandomRobustnessAugment) plus a small amount of common
+    augmentation. Pass ``augment_probability=0.0`` to disable the
+    corruption augmentation entirely (e.g. for a fast, deterministic-ish
+    smoke test).
+    """
 
     return T.Compose(
         [
+            _RandomRobustnessAugment(augment_probability),
             T.Resize(256, interpolation=InterpolationMode.BILINEAR),
             T.RandomCrop(224),
             T.RandomHorizontalFlip(),

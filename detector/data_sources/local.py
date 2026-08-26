@@ -26,7 +26,8 @@ def ingest(settings: dict[str, Any]) -> tuple[Dataset, Dataset, dict[str, Any]]:
         validation_fraction=float(settings.get("validation_fraction", 0.2)),
         seed=int(settings.get("seed", 2026)),
     )
-    train_dataset = ImageDataset(train_records, build_train_transform())
+    augment_probability = float(settings.get("train_augment_probability", 0.7))
+    train_dataset = ImageDataset(train_records, build_train_transform(augment_probability))
     val_dataset = ImageDataset(val_records, build_eval_transform())
     info = {
         "train_count": len(train_records),

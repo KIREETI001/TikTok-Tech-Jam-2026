@@ -208,7 +208,10 @@ def ingest(settings: dict[str, Any]) -> tuple[Dataset, Dataset, dict[str, Any]]:
         _save_split_manifest(split_manifest, train_pool, train_indices, val_indices)
         print(f"Computed new stratified SID_Set split and saved it to {split_manifest}")
 
-    train_dataset = _TransformSubset(Subset(train_pool, train_indices), build_train_transform())
+    augment_probability = float(settings.get("train_augment_probability", 0.7))
+    train_dataset = _TransformSubset(
+        Subset(train_pool, train_indices), build_train_transform(augment_probability)
+    )
     val_dataset = _TransformSubset(Subset(train_pool, val_indices), build_eval_transform())
 
     info = {

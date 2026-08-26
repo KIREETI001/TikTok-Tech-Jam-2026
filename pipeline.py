@@ -234,6 +234,7 @@ def _cmd_smoke(args: argparse.Namespace) -> None:
             batch_size=8,
             num_workers=0,
             device=args.device,
+            train_augment_probability=0.0,  # keep smoke fast and deterministic-ish
         )
 
         resolved = resolve_device(args.device)

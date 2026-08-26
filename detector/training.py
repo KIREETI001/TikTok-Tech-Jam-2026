@@ -115,6 +115,7 @@ def train_model(
     pretrained: bool = True,
     local_files_only: bool = False,
     threshold: float = 0.5,
+    train_augment_probability: float = 0.7,
 ) -> Path:
     """Fine-tune the detector on local-disk image records and return the
     best-F1 checkpoint path. Thin wrapper around
@@ -126,7 +127,7 @@ def train_model(
     if not train_records or not val_records:
         raise ValueError("Training and validation records must both be non-empty.")
 
-    train_dataset = ImageDataset(train_records, build_train_transform())
+    train_dataset = ImageDataset(train_records, build_train_transform(train_augment_probability))
     val_dataset = ImageDataset(val_records, build_eval_transform())
     return train_model_from_datasets(
         train_dataset,

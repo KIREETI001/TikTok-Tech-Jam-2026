@@ -1,6 +1,21 @@
-dataset/
+.venv/
 venv/
 __pycache__/
-*.pyc
-IMG_9453.JPG
-test.JPG
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Local data and generated runs
+Data/
+data/
+runs/
+artifacts/
+*.pt
+*.pth
+predictions*.json
+predictions*.csv
+
+.env
+.env.*
+*.tmp

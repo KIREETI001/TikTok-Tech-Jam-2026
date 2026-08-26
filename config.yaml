@@ -1,0 +1,16 @@
+# External data is deliberately outside the Git repository.
+data_dir: ../Data/train
+output_dir: runs/latest
+
+seed: 2026
+validation_fraction: 0.20
+
+batch_size: 16
+epochs: 5
+learning_rate: 0.00001
+weight_decay: 0.01
+num_workers: 0
+
+threshold: 0.50
+pretrained: true
+local_files_only: false

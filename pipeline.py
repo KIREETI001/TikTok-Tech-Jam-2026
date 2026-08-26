@@ -1,0 +1,208 @@
+"""Small command-line pipeline for PS5 AI-generated image detection."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from detector.data import ingest_training_data, load_manifest
+from detector.evaluation import evaluate, predict_folder
+from detector.model import MODEL_PARAMETERS
+from detector.training import train_model
+
+
+DEFAULT_CONFIG = "config.yaml"
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Ingest, train, evaluate, and run the PS5 image detector."
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    def common(command: argparse.ArgumentParser, *, data: bool = False) -> None:
+        command.add_argument("--config", default=DEFAULT_CONFIG)
+        command.add_argument("--run-dir", help="override config output_dir")
+        if data:
+            command.add_argument("--data", help="override config data_dir")
+
+    ingest = commands.add_parser("ingest", help="validate, deduplicate, and split data")
+    common(ingest, data=True)
+
+    train = commands.add_parser("train", help="ingest data and train one detector")
+    common(train, data=True)
+    train.add_argument("--epochs", type=int)
+    train.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    train.add_argument("--no-pretrained", action="store_true")
+    train.add_argument("--offline", action="store_true")
+
+    evaluate_command = commands.add_parser(
+        "evaluate", help="evaluate clean and transformed images"
+    )
+    common(evaluate_command)
+    evaluate_command.add_argument(
+        "--data", help="external labeled benchmark; omit for manifest validation split"
+    )
+    evaluate_command.add_argument("--checkpoint", help="default: <run-dir>/best.pt")
+    evaluate_command.add_argument(
+        "--device", choices=("auto", "cpu", "cuda"), default="auto"
+    )
+
+    run = commands.add_parser("run", help="one command: ingest, train, and evaluate")
+    common(run, data=True)
+    run.add_argument("--epochs", type=int)
+    run.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    run.add_argument("--no-pretrained", action="store_true")
+    run.add_argument("--offline", action="store_true")
+
+    predict = commands.add_parser("predict", help="predict every image in a folder")
+    common(predict)
+    predict.add_argument("--input", required=True, help="unlabeled image directory")
+    predict.add_argument("--output", default="predictions.json")
+    predict.add_argument("--checkpoint", help="default: <run-dir>/best.pt")
+    predict.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    return parser
+
+
+def _load_config(path: str | Path) -> tuple[dict[str, Any], Path]:
+    source = Path(path).expanduser().resolve()
+    if not source.is_file():
+        raise FileNotFoundError(f"Config does not exist: {source}")
+    payload = yaml.safe_load(source.read_text(encoding="utf-8")) or {}
+    if not isinstance(payload, dict):
+        raise ValueError("Config root must be a YAML mapping.")
+    return payload, source.parent
+
+
+def _path(value: str | Path, *, base: Path) -> Path:
+    candidate = Path(value).expanduser()
+    return (candidate if candidate.is_absolute() else base / candidate).resolve()
+
+
+def _settings(args: argparse.Namespace) -> dict[str, Any]:
+    config, base = _load_config(args.config)
+    data_value = getattr(args, "data", None) or config.get("data_dir", "../Data/train")
+    run_value = getattr(args, "run_dir", None) or config.get("output_dir", "runs/latest")
+    return {
+        **config,
+        "data_dir": _path(data_value, base=base),
+        "run_dir": _path(run_value, base=base),
+    }
+
+
+def _ingest(settings: dict[str, Any]):
+    run_dir = Path(settings["run_dir"])
+    manifest = run_dir / "manifest.csv"
+    train_records, validation_records = ingest_training_data(
+        settings["data_dir"],
+        manifest,
+        validation_fraction=float(settings.get("validation_fraction", 0.2)),
+        seed=int(settings.get("seed", 2026)),
+    )
+    print(
+        f"[INGEST] train={len(train_records)} validation={len(validation_records)} "
+        f"manifest={manifest}"
+    )
+    return train_records, validation_records
+
+
+def _train(
+    settings: dict[str, Any], args: argparse.Namespace, train_records, validation_records
+) -> Path:
+    pretrained = bool(settings.get("pretrained", True)) and not args.no_pretrained
+    checkpoint = train_model(
+        train_records,
+        validation_records,
+        settings["run_dir"],
+        epochs=args.epochs or int(settings.get("epochs", 5)),
+        batch_size=int(settings.get("batch_size", 16)),
+        learning_rate=float(settings.get("learning_rate", 1e-5)),
+        weight_decay=float(settings.get("weight_decay", 0.01)),
+        num_workers=int(settings.get("num_workers", 0)),
+        seed=int(settings.get("seed", 2026)),
+        device=args.device,
+        pretrained=pretrained,
+        local_files_only=bool(settings.get("local_files_only", False)) or args.offline,
+        threshold=float(settings.get("threshold", 0.5)),
+    )
+    print(f"[MODEL] parameters={MODEL_PARAMETERS:,} checkpoint={checkpoint}")
+    return checkpoint
+
+
+def _evaluate(
+    settings: dict[str, Any], args: argparse.Namespace, *, records=None, checkpoint=None
+) -> dict[str, object]:
+    selected_checkpoint = Path(
+        checkpoint or getattr(args, "checkpoint", None) or Path(settings["run_dir"]) / "best.pt"
+    )
+    # ``run --data`` identifies the training root. When the caller has already
+    # supplied held-out records, do not reinterpret that same argument as an
+    # external evaluation set.
+    external_data = getattr(args, "data", None) if records is None else None
+    if external_data:
+        records = None
+        data_root = _path(external_data, base=Path.cwd())
+    else:
+        data_root = None
+        if records is None:
+            records = load_manifest(Path(settings["run_dir"]) / "manifest.csv", split="validation")
+    summary = evaluate(
+        checkpoint=selected_checkpoint,
+        data_root=data_root,
+        records=records,
+        output_dir=settings["run_dir"],
+        batch_size=int(settings.get("batch_size", 16)),
+        num_workers=int(settings.get("num_workers", 0)),
+        device=args.device,
+        threshold=float(settings.get("threshold", 0.5)),
+    )
+    robust = summary["robust_mean"]
+    print(
+        f"[EVALUATE] conditions={summary['conditions_evaluated']} "
+        f"clean_accuracy={summary['clean']['accuracy']:.4f} "
+        f"mean_transformed_accuracy={robust['accuracy']:.4f}"
+    )
+    return summary
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        settings = _settings(args)
+        if args.command == "ingest":
+            _ingest(settings)
+        elif args.command == "train":
+            train_records, validation_records = _ingest(settings)
+            _train(settings, args, train_records, validation_records)
+        elif args.command == "evaluate":
+            _evaluate(settings, args)
+        elif args.command == "run":
+            train_records, validation_records = _ingest(settings)
+            checkpoint = _train(settings, args, train_records, validation_records)
+            _evaluate(settings, args, records=validation_records, checkpoint=checkpoint)
+        elif args.command == "predict":
+            checkpoint = Path(args.checkpoint or Path(settings["run_dir"]) / "best.pt")
+            records = predict_folder(
+                checkpoint=checkpoint,
+                input_dir=args.input,
+                output_json=args.output,
+                batch_size=int(settings.get("batch_size", 16)),
+                num_workers=int(settings.get("num_workers", 0)),
+                device=args.device,
+                threshold=float(settings.get("threshold", 0.5)),
+            )
+            print(f"[PREDICT] images={len(records)} output={Path(args.output).resolve()}")
+        else:
+            raise AssertionError(f"Unhandled command: {args.command}")
+    except (FileNotFoundError, ImportError, OSError, RuntimeError, ValueError) as exc:
+        print(f"[ERROR] {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

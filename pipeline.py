@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+import torch
 import yaml
+from PIL import Image
 
 from detector.data import ingest_training_data, load_manifest
+from detector.data_sources import get_data_source
 from detector.evaluation import evaluate, predict_folder
-from detector.model import MODEL_PARAMETERS
-from detector.training import train_model
+from detector.model import MODEL_PARAMETERS, resolve_device
+from detector.training import train_model, train_model_from_datasets
 
 
 DEFAULT_CONFIG = "config.yaml"
@@ -65,6 +71,18 @@ def _parser() -> argparse.ArgumentParser:
     predict.add_argument("--output", default="predictions.json")
     predict.add_argument("--checkpoint", help="default: <run-dir>/best.pt")
     predict.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+
+    smoke = commands.add_parser(
+        "smoke",
+        help="self-contained GPU/pipeline regression check (synthetic images, no ../Data/ needed)",
+    )
+    smoke.add_argument(
+        "--device",
+        choices=("auto", "cpu", "cuda"),
+        default="auto",
+        help="fails if a GPU is present but training doesn't actually run on cuda",
+    )
+    smoke.add_argument("--epochs", type=int, default=2)
     return parser
 
 
@@ -95,28 +113,32 @@ def _settings(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _ingest(settings: dict[str, Any]):
-    run_dir = Path(settings["run_dir"])
-    manifest = run_dir / "manifest.csv"
-    train_records, validation_records = ingest_training_data(
-        settings["data_dir"],
-        manifest,
-        validation_fraction=float(settings.get("validation_fraction", 0.2)),
-        seed=int(settings.get("seed", 2026)),
-    )
+    """Ingest via the configured ``data_source`` ("local" or
+    "sid_set_stream"). Returns ``(train_dataset, val_dataset, info)``; for
+    the "local" source, ``info`` also carries ``train_records``/
+    ``val_records`` so ``evaluate``/``run`` can reuse the held-out split.
+    """
+    ingest_fn = get_data_source(str(settings.get("data_source", "local")))
+    train_dataset, val_dataset, info = ingest_fn(settings)
     print(
-        f"[INGEST] train={len(train_records)} validation={len(validation_records)} "
-        f"manifest={manifest}"
+        f"[INGEST] source={settings.get('data_source', 'local')} "
+        f"train={info['train_count']} validation={info['val_count']} "
+        f"manifest={info['manifest']}"
     )
-    return train_records, validation_records
+    return train_dataset, val_dataset, info
 
 
 def _train(
-    settings: dict[str, Any], args: argparse.Namespace, train_records, validation_records
+    settings: dict[str, Any],
+    args: argparse.Namespace,
+    train_dataset,
+    val_dataset,
+    info: dict[str, Any],
 ) -> Path:
     pretrained = bool(settings.get("pretrained", True)) and not args.no_pretrained
-    checkpoint = train_model(
-        train_records,
-        validation_records,
+    checkpoint = train_model_from_datasets(
+        train_dataset,
+        val_dataset,
         settings["run_dir"],
         epochs=args.epochs or int(settings.get("epochs", 5)),
         batch_size=int(settings.get("batch_size", 16)),
@@ -128,6 +150,8 @@ def _train(
         pretrained=pretrained,
         local_files_only=bool(settings.get("local_files_only", False)) or args.offline,
         threshold=float(settings.get("threshold", 0.5)),
+        train_count=info["train_count"],
+        val_count=info["val_count"],
     )
     print(f"[MODEL] parameters={MODEL_PARAMETERS:,} checkpoint={checkpoint}")
     return checkpoint
@@ -169,21 +193,104 @@ def _evaluate(
     return summary
 
 
+def _make_synthetic_images(root: Path, *, per_class: int = 20, size: int = 224) -> None:
+    """Writes deterministic synthetic real/fake JPEGs so `smoke` needs no
+    external dataset. "real" images are solid colors; "fake" images are
+    random noise -- an easy, arbitrary distinction good enough to exercise
+    the full ingest -> train pipeline and confirm loss actually decreases.
+    """
+    rng = np.random.default_rng(2026)
+    (root / "real").mkdir(parents=True, exist_ok=True)
+    (root / "fake").mkdir(parents=True, exist_ok=True)
+    for i in range(per_class):
+        color = rng.integers(0, 256, size=3)
+        solid = np.broadcast_to(color, (size, size, 3)).astype(np.uint8)
+        Image.fromarray(solid, mode="RGB").save(root / "real" / f"{i:03d}.jpg", quality=90)
+
+        noise = rng.integers(0, 256, size=(size, size, 3)).astype(np.uint8)
+        Image.fromarray(noise, mode="RGB").save(root / "fake" / f"{i:03d}.jpg", quality=90)
+
+
+def _cmd_smoke(args: argparse.Namespace) -> None:
+    if args.device in ("cuda", "auto") and not torch.cuda.is_available():
+        if args.device == "cuda":
+            raise RuntimeError("smoke --device cuda requested but torch.cuda.is_available() is False.")
+        print("[SMOKE] WARNING: no CUDA GPU detected; running on CPU (cannot verify GPU training).")
+
+    with tempfile.TemporaryDirectory(prefix="pipeline_smoke_") as tmp:
+        tmp_path = Path(tmp)
+        data_dir = tmp_path / "data"
+        run_dir = tmp_path / "run"
+        _make_synthetic_images(data_dir)
+
+        train_records, val_records = ingest_training_data(
+            data_dir, run_dir / "manifest.csv", validation_fraction=0.25, seed=2026
+        )
+        checkpoint = train_model(
+            train_records,
+            val_records,
+            run_dir,
+            epochs=max(2, args.epochs),
+            batch_size=8,
+            num_workers=0,
+            device=args.device,
+        )
+
+        resolved = resolve_device(args.device)
+        if args.device != "cpu" and resolved.type != "cuda" and torch.cuda.is_available():
+            raise RuntimeError(
+                f"smoke resolved to device={resolved} despite a CUDA GPU being available."
+            )
+
+        history_path = run_dir / "training.csv"
+        with history_path.open(newline="", encoding="utf-8") as stream:
+            rows = list(csv.DictReader(stream))
+        first_loss = float(rows[0]["train_loss"])
+        last_loss = float(rows[-1]["train_loss"])
+        if not last_loss < first_loss:
+            raise RuntimeError(
+                f"smoke train_loss did not decrease: epoch1={first_loss:.4f} -> "
+                f"epoch{len(rows)}={last_loss:.4f}"
+            )
+
+        print(
+            f"[SMOKE] OK: device={resolved} train_loss {first_loss:.4f} -> {last_loss:.4f} "
+            f"over {len(rows)} epochs, checkpoint={checkpoint.name} (discarded)"
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        if args.command == "smoke":
+            _cmd_smoke(args)
+            return 0
         settings = _settings(args)
         if args.command == "ingest":
             _ingest(settings)
         elif args.command == "train":
-            train_records, validation_records = _ingest(settings)
-            _train(settings, args, train_records, validation_records)
+            train_dataset, val_dataset, info = _ingest(settings)
+            _train(settings, args, train_dataset, val_dataset, info)
         elif args.command == "evaluate":
             _evaluate(settings, args)
         elif args.command == "run":
-            train_records, validation_records = _ingest(settings)
-            checkpoint = _train(settings, args, train_records, validation_records)
-            _evaluate(settings, args, records=validation_records, checkpoint=checkpoint)
+            train_dataset, val_dataset, info = _ingest(settings)
+            checkpoint = _train(settings, args, train_dataset, val_dataset, info)
+            # ``evaluate`` only knows how to read path-based ImageRecords
+            # (detector.data's manifest.csv); that's only available for the
+            # "local" data source. A streamed source (e.g. sid_set_stream)
+            # has no local paths to hand it, so skip the automatic
+            # post-train evaluate rather than fail -- run `pipeline.py
+            # evaluate --data <local-benchmark>` separately instead.
+            held_out_records = info.get("val_records")
+            if held_out_records is not None:
+                _evaluate(settings, args, records=held_out_records, checkpoint=checkpoint)
+            else:
+                print(
+                    "[EVALUATE] skipped: automatic post-train evaluation needs a "
+                    "local-path data source; run `pipeline.py evaluate --data "
+                    "<folder>` against a local benchmark instead."
+                )
         elif args.command == "predict":
             checkpoint = Path(args.checkpoint or Path(settings["run_dir"]) / "best.pt")
             records = predict_folder(

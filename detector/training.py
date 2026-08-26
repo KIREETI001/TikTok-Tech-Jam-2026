@@ -9,7 +9,7 @@ from typing import Sequence
 
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 
 from .data import ImageDataset, ImageRecord
 from .model import Detector, create_detector, resolve_device, save_checkpoint
@@ -116,10 +116,70 @@ def train_model(
     local_files_only: bool = False,
     threshold: float = 0.5,
 ) -> Path:
-    """Fine-tune the detector and return the best-F1 checkpoint path."""
+    """Fine-tune the detector on local-disk image records and return the
+    best-F1 checkpoint path. Thin wrapper around
+    :func:`train_model_from_datasets` for the path-based (``detector.data``)
+    data source; a streamed data source (e.g. HTTP-fetched shards with no
+    local path) builds its own datasets and calls that function directly.
+    """
 
     if not train_records or not val_records:
         raise ValueError("Training and validation records must both be non-empty.")
+
+    train_dataset = ImageDataset(train_records, build_train_transform())
+    val_dataset = ImageDataset(val_records, build_eval_transform())
+    return train_model_from_datasets(
+        train_dataset,
+        val_dataset,
+        output_dir,
+        epochs=epochs,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        weight_decay=weight_decay,
+        num_workers=num_workers,
+        seed=seed,
+        device=device,
+        pretrained=pretrained,
+        local_files_only=local_files_only,
+        threshold=threshold,
+        train_count=len(train_records),
+        val_count=len(val_records),
+    )
+
+
+def train_model_from_datasets(
+    train_dataset: Dataset,
+    val_dataset: Dataset,
+    output_dir: str | Path,
+    *,
+    epochs: int = 5,
+    batch_size: int = 16,
+    learning_rate: float = 1e-5,
+    weight_decay: float = 0.01,
+    num_workers: int = 0,
+    seed: int = 2026,
+    device: str | torch.device = "auto",
+    pretrained: bool = True,
+    local_files_only: bool = False,
+    threshold: float = 0.5,
+    train_count: int | None = None,
+    val_count: int | None = None,
+) -> Path:
+    """Fine-tune the detector on pre-built, already-transformed datasets.
+
+    ``train_dataset``/``val_dataset`` must each yield ``(image_tensor, label)``
+    pairs (i.e. the transform has already been applied) -- this is the
+    integration point for data sources that have no local file path to hand
+    :class:`detector.data.ImageDataset`, such as one that streams images
+    over HTTP.
+    """
+
+    if train_count is None:
+        train_count = len(train_dataset)  # type: ignore
+    if val_count is None:
+        val_count = len(val_dataset)  # type: ignore
+    if not train_count or not val_count:
+        raise ValueError("Training and validation datasets must both be non-empty.")
     if epochs < 1 or batch_size < 1:
         raise ValueError("epochs and batch_size must be positive.")
     if learning_rate <= 0 or weight_decay < 0 or num_workers < 0:
@@ -134,8 +194,6 @@ def train_model(
     best_checkpoint = destination / "best.pt"
     history_path = destination / "training.csv"
 
-    train_dataset = ImageDataset(train_records, build_train_transform())
-    val_dataset = ImageDataset(val_records, build_eval_transform())
     generator = torch.Generator().manual_seed(seed)
     loader_options = {
         "batch_size": batch_size,
@@ -160,7 +218,7 @@ def train_model(
     best_f1 = -1.0
 
     fields = ["epoch", "train_loss", "val_loss", "accuracy", "precision", "recall", "f1"]
-    print(f"Training on {resolved_device} ({len(train_records)} train, {len(val_records)} val)")
+    print(f"Training on {resolved_device} ({train_count} train, {val_count} val)")
     with history_path.open("w", newline="", encoding="utf-8") as history_file:
         writer = csv.DictWriter(history_file, fieldnames=fields)
         writer.writeheader()

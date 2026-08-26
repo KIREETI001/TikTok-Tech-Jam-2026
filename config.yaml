@@ -1,4 +1,12 @@
-# External data is deliberately outside the Git repository.
+# "local" reads data_dir below (external data is deliberately outside the
+# Git repository). "sid_set_stream" instead streams the SID_Set dataset
+# from the Hugging Face Hub over HTTP -- no local data_dir needed; see
+# detector/data_sources/sid_set_stream.py. Uncomment to switch:
+data_source: local
+# data_source: sid_set_stream
+# sid_set_train_shards: 13
+# sid_set_val_shards: 1
+
 data_dir: ../Data/train
 output_dir: runs/latest
 

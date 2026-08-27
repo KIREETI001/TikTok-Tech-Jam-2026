@@ -193,6 +193,54 @@ from its earlier strong "predict real" bias, but the net effect is a much
 more balanced, better-performing model on both datasets simultaneously.
 Accepted as the new default (`config.yaml`: `data_source: mixed`).
 
+## 6. Research-driven iteration -- diversity + augmentation recipe fix (in progress)
+
+Goal set for this iteration: 98% accuracy, <2% FN/FP (organizer brief's
+bar). Researched what the literature says actually drives cross-generator
+generalization before changing anything:
+
+- **Community Forensics** (the base model here) itself finds generalization
+  scales with *number of distinct generators* seen, more than images per
+  generator -- argues for more SID_Set shard diversity, not just more of
+  the same shards.
+- **Wang et al., CVPR 2020** ("CNN-generated images are surprisingly easy to
+  spot...for now"): blur + JPEG applied *independently* (so they can
+  co-occur on one image) is what produced generalization in their
+  experiments -- not picking one corruption at a time, which is what
+  section 3's `_RandomRobustnessAugment` did.
+- **Ojha et al., CVPR 2023** ("Towards Universal Fake Image Detectors"):
+  full fine-tuning tends to learn narrow, generator-specific artifacts and
+  treat "real" as a sink class -- plausible explanation for section 5's
+  FPR-vs-FNR asymmetry. Noted as a follow-up lever (lighter fine-tune
+  depth), not changed this round.
+
+**Changes made:**
+- `detector/transforms.py`'s `_RandomRobustnessAugment` rewritten: each of
+  resize-roundtrip/blur/noise/JPEG now fires independently (per-op
+  probability derived from `train_augment_probability` so config semantics
+  are unchanged), instead of picking exactly one -- matching the Wang et
+  al. recipe. Verified: 22.6% of samples get 2+ stacked corruptions over
+  2000 trials at probability 0.7; edge cases (0.0/1.0) correct.
+- `config.yaml`: `sid_set_train_shards` 10 -> 30 (~25k images instead of
+  ~8.4k).
+- **Deliberately not added**: CIFAKE (native 32x32 resolution -- 7x
+  upsampling to our 224x224 input risks teaching "blurry/blocky = fake" as
+  a spurious cue, not a real one) and WildFake (organizer's eval-only
+  benchmark per the brief; not used for training, full stop).
+
+**Status: running** (`runs/mixed_v2`). Will evaluate against `Data/test`
+and the same fixed SID_Set sample used in sections 4-5 once training
+finishes. *This section will be updated with results.*
+
+**Expectation-setting**: 98%/<2% FN&FP cross-dataset is a very ambitious
+bar -- section 5's best cross-dataset result so far is 83.7% clean
+accuracy with 12-28% error rates. This iteration's changes are
+well-evidenced improvements, not a guaranteed path to the target in one
+pass; if the gap remains large after this run, the next levers are the
+lighter-fine-tune-depth experiment above, a third data source (GenImage),
+or accepting the frequency-signal architecture work as a bigger follow-up
+project.
+
 ## Not yet attempted
 
 - **Frequency/noise-residual auxiliary signal** (deferred, bigger lift): the
@@ -201,11 +249,15 @@ Accepted as the new default (`config.yaml`: `data_source: mixed`).
   signal alongside the Community Forensics logit (not a full rebuild of
   `origin/main`'s 4-branch fusion model -- that was assessed and explicitly
   not adopted, see the architecture-decision note below) is the next lever
-  if section 5's data-diversity fix doesn't fully close the gap.
-- **Third-dataset holdout**: sections 4/5 only check generalization to one
+  if section 6's changes don't fully close the gap.
+- **Lighter fine-tune depth** (Ojha et al.-motivated): freeze the last
+  transformer block too (train only the head + norm), trading some clean
+  accuracy for potentially better cross-generator generalization.
+- **Third-dataset holdout**: sections 4-6 only check generalization to one
   additional dataset (SID_Set). A truly "any dataset" claim would want at
-  least one more, still-unseen source to confirm the mixed-training fix
-  isn't just overfitting to two datasets instead of one.
+  least one more, still-unseen source (GenImage is a strong real-resolution
+  candidate) to confirm the fix isn't just overfitting to two datasets
+  instead of one.
 
 ## Architecture decision (for context, not a training run)
 

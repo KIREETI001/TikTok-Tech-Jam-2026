@@ -103,7 +103,10 @@ from the `cu126` index above.
 
 The first pretrained run downloads the pinned Community Forensics checkpoint.
 Set `local_files_only: true` in `config.yaml` when it is already cached and the
-machine must remain offline.
+machine must remain offline. This only covers the checkpoint download --
+`sid_set_stream` and `mixed` (the default) always fetch data from the HF Hub
+regardless of this flag. For a fully offline run, also set `data_source:
+local` in `config.yaml`.
 
 ## Checkpoints, logs, and other run artifacts
 

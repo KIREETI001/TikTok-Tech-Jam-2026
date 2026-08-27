@@ -44,7 +44,16 @@ def _parser() -> argparse.ArgumentParser:
     train.add_argument("--epochs", type=int)
     train.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     train.add_argument("--no-pretrained", action="store_true")
-    train.add_argument("--offline", action="store_true")
+    train.add_argument(
+        "--offline",
+        action="store_true",
+        help=(
+            "skip re-downloading the pretrained checkpoint if cached; does NOT "
+            "avoid network access for the sid_set_stream/mixed data sources, "
+            "which always fetch from the HF Hub -- use --config with "
+            "data_source: local for a fully offline run"
+        ),
+    )
 
     evaluate_command = commands.add_parser(
         "evaluate", help="evaluate clean and transformed images"
@@ -127,10 +136,13 @@ def _settings(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _ingest(settings: dict[str, Any]):
-    """Ingest via the configured ``data_source`` ("local" or
-    "sid_set_stream"). Returns ``(train_dataset, val_dataset, info)``; for
-    the "local" source, ``info`` also carries ``train_records``/
-    ``val_records`` so ``evaluate``/``run`` can reuse the held-out split.
+    """Ingest via the configured ``data_source`` ("local", "sid_set_stream",
+    or "mixed" -- see detector/data_sources/). Returns ``(train_dataset,
+    val_dataset, info)``; only the "local" source's ``info`` carries
+    ``train_records``/``val_records`` (path-based ``ImageRecord``s) so
+    ``evaluate``/``run`` can reuse the held-out split -- "sid_set_stream" and
+    "mixed" have no local paths to offer, so ``run``'s automatic post-train
+    evaluate is skipped for both (see ``main()`` below).
     """
     ingest_fn = get_data_source(str(settings.get("data_source", "local")))
     train_dataset, val_dataset, info = ingest_fn(settings)
@@ -333,10 +345,10 @@ def main(argv: list[str] | None = None) -> int:
             checkpoint = _train(settings, args, train_dataset, val_dataset, info)
             # ``evaluate`` only knows how to read path-based ImageRecords
             # (detector.data's manifest.csv); that's only available for the
-            # "local" data source. A streamed source (e.g. sid_set_stream)
-            # has no local paths to hand it, so skip the automatic
-            # post-train evaluate rather than fail -- run `pipeline.py
-            # evaluate --data <local-benchmark>` separately instead.
+            # "local" data source. "sid_set_stream" and "mixed" have no
+            # local paths to hand it, so skip the automatic post-train
+            # evaluate rather than fail -- run `pipeline.py evaluate --data
+            # <local-benchmark>` separately instead.
             held_out_records = info.get("val_records")
             if held_out_records is not None:
                 _evaluate(settings, args, records=held_out_records, checkpoint=checkpoint)

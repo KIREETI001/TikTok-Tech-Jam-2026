@@ -157,12 +157,41 @@ shard: `train=715` exactly matches `40 local + 675 SID_Set`, `val=179`
 matches `10 + 169` -- concatenation is correct) before launching at full
 scale.
 
-**Status: running.** Launched against the full local pool (99,080 images)
-plus 10 SID_Set train shards. Will evaluate the resulting checkpoint against
-both `Data/test` (compare to #3's 0.9511/0.9133) and the same fixed SID_Set
-sample from section 4 (compare to #3's 0.6950/0.6924 and the zero-shot
-0.6009/0.5402) once training finishes. *This section will be updated with
-results.*
+Full run: 99,080 local images + 10 SID_Set train shards -> 86,015 train /
+21,505 val combined. Took 6h51m (longer than the ~3.75h estimate -- shard
+fetch/decode for 10 shards added more overhead than expected). Final:
+`train 0.1984 | val 0.1286 | F1 0.9504` (combined val, so not directly
+comparable to #3's local-only val F1).
+
+**Result on `Data/test`** (PS5, unseen during training):
+
+| | #3 (PS5-only) | #5 (mixed) |
+|---|---|---|
+| clean accuracy | 0.9511 | **0.9540** (+0.3pt) |
+| robust mean accuracy | 0.9133 | 0.9118 (-0.15pt) |
+
+**No PS5-performance cost from mixing in SID_Set** -- both numbers are
+within noise of #3, one even nominally better.
+
+**Result on the same fixed SID_Set sample from section 4:**
+
+| | zero-shot | #3 (PS5-only) | #5 (mixed) |
+|---|---|---|---|
+| clean accuracy | 0.6009 | 0.6950 | **0.8367** (+14.2pt vs #3) |
+| mean-transformed accuracy | 0.5402 | 0.6924 | **0.8366** (+14.4pt vs #3) |
+| FNR range across 15 conditions | 55-95% | 33-55% | **12-17%** |
+| FPR range across 15 conditions | 0-3.5% | 4-18% | 15-28% |
+| ROC-AUC (clean) | ~0.73 | 0.774 | **0.922** |
+
+**Finding**: decisive confirmation of the section-4 diagnosis. Mixing in
+~8,400 SID_Set training images (~9.5% of the combined pool) closed most of
+the cross-dataset gap -- clean accuracy on SID_Set jumped 14pt with zero
+measurable cost on the original PS5 distribution. FNR (missed AI images,
+the dominant failure mode in section 4) dropped from 33-55% to 12-17%; FPR
+rose somewhat (4-18% -> 15-28%) as the decision boundary rebalanced away
+from its earlier strong "predict real" bias, but the net effect is a much
+more balanced, better-performing model on both datasets simultaneously.
+Accepted as the new default (`config.yaml`: `data_source: mixed`).
 
 ## Not yet attempted
 

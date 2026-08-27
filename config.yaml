@@ -3,7 +3,7 @@
 # concatenated -- the default, see detector/data_sources/mixed.py and
 # experiments.md section 5 for why).
 data_source: mixed
-sid_set_train_shards: 10
+sid_set_train_shards: 30
 sid_set_val_shards: 1
 
 data_dir: ../Data/train
@@ -18,13 +18,12 @@ learning_rate: 0.00001
 weight_decay: 0.01
 num_workers: 0
 
-# Fraction of training samples that get one randomly-severity JPEG
-# re-encode / blur / noise / resize-roundtrip corruption applied before
-# the usual crop/flip/color-jitter augmentation (see
-# detector/transforms.py's _RandomRobustnessAugment). 0 disables it.
-# Added to close a measured robustness gap: blur_sigma2 dropped to ~60%
-# accuracy and noise_sigma0.05/0.10 missed ~49% of AI images at eval time
-# with this at 0, on both the held-out validation split and Data/test.
+# Chance that at least one of {resize-roundtrip, blur, noise, JPEG
+# re-encode} gets applied before the usual crop/flip/color-jitter
+# augmentation (see detector/transforms.py's _RandomRobustnessAugment).
+# Each is applied independently (so 2+ can stack on one image, per Wang et
+# al. CVPR 2020's finding that this -- not picking one corruption at a
+# time -- is what drives cross-generator robustness). 0 disables it.
 train_augment_probability: 0.7
 
 threshold: 0.50

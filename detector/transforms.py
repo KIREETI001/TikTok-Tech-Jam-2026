@@ -131,10 +131,27 @@ def build_eval_transform(condition: str = "clean", *, seed: int = 0) -> T.Compos
 
 
 class _RandomRobustnessAugment:
-    """Randomly applies one realistic corruption -- JPEG re-encode, blur,
-    Gaussian noise, or a downsample/upsample round-trip -- per training
-    sample, at a randomly sampled severity spanning the same range the
-    fixed-severity evaluation matrix (CONDITION_SPECS) tests.
+    """Independently applies each of resize-roundtrip / blur / Gaussian
+    noise / JPEG re-encode to a training sample (each at its own randomly
+    sampled severity, spanning the same range the fixed-severity evaluation
+    matrix (CONDITION_SPECS) tests), so multiple can stack on one image.
+
+    Originally this picked exactly one of the four per sample. Rewritten
+    after checking the literature on what actually drives cross-generator
+    robustness: Wang et al., "CNN-generated images are surprisingly easy to
+    spot...for now" (CVPR 2020) found that blur *and* JPEG applied
+    independently (~50% each, so they can co-occur) is what produced
+    generalization, not choosing one corruption at a time -- a real
+    post-and-reshare image is typically resized *and* re-compressed *and*
+    noisy, not exactly one of those. ``probability`` still means "chance at
+    least one corruption fires" (so existing config values keep their
+    meaning); internally it's converted to an independent per-corruption
+    probability so 2+ can stack, matching the validated recipe:
+    ``p_each = 1 - (1 - probability) ** (1 / 4)``.
+
+    Order (resize -> blur -> noise -> jpeg) mirrors a plausible real-world
+    capture/reshare chain: a resolution change, then optical/compression
+    blur, then sensor/channel noise, then the final JPEG save.
 
     Applied *before* the Resize/RandomCrop step below, mirroring
     build_eval_transform's operation order (apply_condition also runs
@@ -142,35 +159,27 @@ class _RandomRobustnessAugment:
     severity (e.g. "blur sigma 2") would mean a different effective amount
     of blur at eval time than at train time, since blurring a 224x224 crop
     is not the same as blurring the original image and then downscaling.
-
-    Without this, the model never saw these corruptions during training
-    and was fragile to them at eval time (measured: blur_sigma2 dropped to
-    ~60% accuracy, noise_sigma0.05/0.10 missed ~49% of AI images) -- this
-    exists specifically to close that gap.
     """
-
-    _CORRUPTIONS = ("jpeg", "blur", "noise", "resize")
 
     def __init__(self, probability: float = 0.7) -> None:
         if not 0.0 <= probability <= 1.0:
             raise ValueError("probability must be between 0 and 1.")
         self.probability = probability
+        # At least one of 4 independent Bernoulli(p_each) fires with
+        # probability `probability`: 1 - (1-p_each)^4 = probability.
+        self.per_op_probability = 1.0 - (1.0 - probability) ** 0.25
 
     def __call__(self, image: Image.Image) -> Image.Image:
-        source = image.convert("RGB")
-        if random.random() >= self.probability:
-            return source
-
-        corruption = random.choice(self._CORRUPTIONS)
-        if corruption == "jpeg":
-            return _jpeg(source, random.randint(30, 100))
-        if corruption == "blur":
-            return source.filter(ImageFilter.GaussianBlur(radius=random.uniform(0.0, 2.0)))
-        if corruption == "noise":
-            return _gaussian_noise(source, random.uniform(0.0, 0.10), random.randint(0, 2**31 - 1))
-        if corruption == "resize":
-            return _resize_round_trip(source, random.uniform(0.25, 1.0))
-        raise AssertionError(f"Unhandled corruption: {corruption}")
+        result = image.convert("RGB")
+        if random.random() < self.per_op_probability:
+            result = _resize_round_trip(result, random.uniform(0.25, 1.0))
+        if random.random() < self.per_op_probability:
+            result = result.filter(ImageFilter.GaussianBlur(radius=random.uniform(0.0, 2.0)))
+        if random.random() < self.per_op_probability:
+            result = _gaussian_noise(result, random.uniform(0.0, 0.10), random.randint(0, 2**31 - 1))
+        if random.random() < self.per_op_probability:
+            result = _jpeg(result, random.randint(30, 100))
+        return result
 
 
 def build_train_transform(augment_probability: float = 0.7) -> T.Compose:

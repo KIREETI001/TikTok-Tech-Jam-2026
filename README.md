@@ -14,13 +14,17 @@ and `0` means authentic.
 
 ```text
 model_training/
-|-- pipeline.py              ingest, train, evaluate, predict, run, and smoke commands
+|-- pipeline.py              ingest, train, evaluate, predict, run, smoke, and
+|                            materialize-sid-set commands
 |-- config.yaml              paths, data source, and basic training settings
+|-- experiments.md           log of every training/eval attempt: config,
+|                            metrics, and what each one found
 |-- detector/
 |   |-- data.py              image discovery, validation, deduplication, split
 |   |-- data_sources/        swappable train data sources (see below)
-|   |   |-- local.py         ../Data/train on local disk (default)
-|   |   `-- sid_set_stream.py  SID_Set streamed over HTTP from the HF Hub
+|   |   |-- local.py         ../Data/train on local disk
+|   |   |-- sid_set_stream.py  SID_Set streamed over HTTP from the HF Hub
+|   |   `-- mixed.py         local + sid_set_stream concatenated (default)
 |   |-- model.py             Community Forensics model and checkpoints
 |   |-- transforms.py        training transforms and brief evaluation matrix
 |   |-- training.py          one BCE/AdamW fine-tuning loop
@@ -33,18 +37,26 @@ model_training/
 
 `config.yaml`'s `data_source` key picks how training images are ingested:
 
-- `local` (default) -- reads the `../Data/train` tree below, exactly as
-  before.
+- `local` -- reads the `../Data/train` tree below only.
 - `sid_set_stream` -- streams the SID_Set dataset directly from the Hugging
   Face Hub over HTTP at training time, with no local dataset copy needed.
   Useful on a machine (or CI runner) without `../Data/`. Configure shard
   counts via `sid_set_train_shards` (default 13). Needs the `pyarrow` and
   `huggingface-hub` dependencies (already in `requirements.txt`).
+- `mixed` (**default**) -- concatenates `local` and `sid_set_stream`'s
+  `train` shards into one training pool. Added after evaluating the
+  `local`-only checkpoint against SID_Set and finding a real cross-dataset
+  generalization gap (~95% accuracy on PS5's own held-out test vs. ~70% on
+  SID_Set); mixing in ~8,400 SID_Set images closed most of that gap
+  (83.7% on SID_Set) with no measurable cost on PS5 performance. See
+  `experiments.md` sections 4-5 for the full diagnosis and numbers.
 
-Both sources feed the same `train`/`run` commands; only `evaluate`'s
-automatic reuse of the held-out split (via `run`) is local-only today --
-evaluate a `sid_set_stream`-trained checkpoint with
-`pipeline.py evaluate --data <local-benchmark>` instead.
+All three feed the same `train`/`run` commands; only `evaluate`'s automatic
+reuse of the held-out split (via `run`) is local-path-only today -- evaluate
+a `sid_set_stream`/`mixed`-trained checkpoint with
+`pipeline.py evaluate --data <local-benchmark>` instead (see
+`materialize-sid-set` below for turning a streamed dataset into one of
+those).
 
 ## Data layout
 
@@ -55,9 +67,9 @@ Keep data outside Git:
 |-- train/
 |   |-- real/                authentic training images
 |   `-- fake/                AI-generated training images
-`-- benchmark/               optional validation-only benchmark
-    |-- real/
-    `-- fake/
+`-- test/                    validation-only held-out set (this project's is
+    |-- real/                named test/; benchmark/ works identically --
+    `-- fake/                any folder name is accepted via --data)
 ```
 
 `authentic`, `non_aigc`, `ai`, and `aigc` are also accepted class-folder
@@ -118,7 +130,7 @@ python pipeline.py evaluate
 python pipeline.py run
 
 # Evaluate an external, validation-only benchmark.
-python pipeline.py evaluate --data ..\Data\benchmark
+python pipeline.py evaluate --data ..\Data\test
 
 # Required directory-to-JSON inference.
 python pipeline.py predict --input <image-folder> --output predictions.json
@@ -127,6 +139,12 @@ python pipeline.py predict --input <image-folder> --output predictions.json
 # Fails loudly if a GPU is present but training silently falls back to CPU
 # (the failure mode this project hit once already), or if loss doesn't drop.
 python pipeline.py smoke
+
+# Fetch SID_Set shards from the HF Hub and save them locally as real/fake
+# JPEGs, so `evaluate` can run its normal robustness matrix against a
+# genuinely different dataset (see experiments.md section 4).
+python pipeline.py materialize-sid-set --split validation --shards 5 --output ..\Data\sid_set_eval
+python pipeline.py evaluate --data ..\Data\sid_set_eval --checkpoint runs\latest\best.pt
 ```
 
 Use `--config`, `--run-dir`, `--checkpoint`, `--device`, and `--epochs` to
@@ -171,10 +189,28 @@ Each row reports accuracy, F1, ROC-AUC, false-positive rate,
 false-negative rate, and the clean-to-transformed gap. `errors.csv` supplies
 the requested representative FP/FN evidence.
 
+## Results
+
+Current default config (`mixed` data source, `train_augment_probability:
+0.7`), full numbers and methodology in `experiments.md`:
+
+| | PS5 `Data/test` (unseen) | SID_Set (unseen, different dataset) |
+|---|---|---|
+| Clean accuracy | 95.40% | 83.67% |
+| Mean robust accuracy (15 conditions) | 91.18% | 83.66% |
+
+The SID_Set column is a genuine cross-dataset generalization check, not a
+held-out split of the same data -- see `experiments.md` sections 4-5 for how
+a ~95%/~70% gap there was diagnosed (ruled out calibration and
+over-aggressive fine-tuning first) and closed by mixing SID_Set images into
+training.
+
 ## Limitations
 
-- `../Data/` is currently empty, so there are no real accuracy or robustness
-  claims yet.
+- Results above are checked against one additional dataset (SID_Set) beyond
+  PS5's own held-out test; a genuine "generalizes to any dataset" claim
+  would want at least one more, still-unseen source (see `experiments.md`'s
+  "Not yet attempted" section).
 - Public/properly licensed training data remains the operator's responsibility.
 - The benchmark is evaluation-only and must never be used for training or
   threshold selection.

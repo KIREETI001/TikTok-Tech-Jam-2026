@@ -31,4 +31,8 @@ def get_data_source(name: str) -> IngestFn:
         from .sid_set_stream import ingest
 
         return ingest
-    raise ValueError(f"Unknown data_source {name!r}; choose 'local' or 'sid_set_stream'.")
+    if name == "mixed":
+        from .mixed import ingest
+
+        return ingest
+    raise ValueError(f"Unknown data_source {name!r}; choose 'local', 'sid_set_stream', or 'mixed'.")

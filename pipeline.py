@@ -83,6 +83,20 @@ def _parser() -> argparse.ArgumentParser:
         help="fails if a GPU is present but training doesn't actually run on cuda",
     )
     smoke.add_argument("--epochs", type=int, default=2)
+
+    materialize = commands.add_parser(
+        "materialize-sid-set",
+        help=(
+            "fetch N SID_Set shards from the HF Hub and save them locally as "
+            "real/fake JPEGs, so `evaluate` can run the normal robustness "
+            "matrix against a genuinely different dataset"
+        ),
+    )
+    materialize.add_argument("--split", choices=("train", "validation"), default="validation")
+    materialize.add_argument("--shards", type=int, default=5)
+    materialize.add_argument(
+        "--output", required=True, help="destination folder (gets real/ and fake/ subfolders)"
+    )
     return parser
 
 
@@ -260,11 +274,51 @@ def _cmd_smoke(args: argparse.Namespace) -> None:
         )
 
 
+def _sanitize_img_id(img_id: str, index: int) -> str:
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in str(img_id))
+    return f"{index:06d}_{safe}"[:150]
+
+
+def _cmd_materialize_sid_set(args: argparse.Namespace) -> None:
+    """Fetch args.shards SID_Set shards and save them locally as real/fake
+    JPEGs under args.output, so the normal path-based `evaluate` (and its
+    15-condition robustness matrix) can run against them exactly like any
+    other local benchmark -- see detector/data_sources/sid_set_stream.py
+    for the underlying HF-Hub streaming.
+    """
+    from detector.data_sources.sid_set_stream import CLASS_TO_IDX, SIDSetDataset
+
+    idx_to_class = {idx: name.lower() for name, idx in CLASS_TO_IDX.items()}
+    output = Path(args.output).expanduser().resolve()
+    for name in idx_to_class.values():
+        (output / name).mkdir(parents=True, exist_ok=True)
+
+    print(f"[MATERIALIZE] fetching {args.shards} '{args.split}' shard(s) from SID_Set ...")
+    dataset = SIDSetDataset(args.split, args.shards)
+    print(f"[MATERIALIZE] {len(dataset)} images indexed; saving to {output}")
+
+    counts = {name: 0 for name in idx_to_class.values()}
+    for i in range(len(dataset)):
+        image, label = dataset[i]
+        img_id, _label = dataset.samples[i]
+        class_name = idx_to_class[label]
+        filename = _sanitize_img_id(img_id, i) + ".jpg"
+        image.save(output / class_name / filename, quality=95)
+        counts[class_name] += 1
+        if (i + 1) % 500 == 0 or i + 1 == len(dataset):
+            print(f"[MATERIALIZE] saved {i + 1}/{len(dataset)}")
+
+    print(f"[MATERIALIZE] done: {counts}")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         if args.command == "smoke":
             _cmd_smoke(args)
+            return 0
+        if args.command == "materialize-sid-set":
+            _cmd_materialize_sid_set(args)
             return 0
         settings = _settings(args)
         if args.command == "ingest":

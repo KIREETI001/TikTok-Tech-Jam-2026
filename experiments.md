@@ -228,18 +228,50 @@ generalization before changing anything:
   a spurious cue, not a real one) and WildFake (organizer's eval-only
   benchmark per the brief; not used for training, full stop).
 
-**Status: running** (`runs/mixed_v2`). Will evaluate against `Data/test`
-and the same fixed SID_Set sample used in sections 4-5 once training
-finishes. *This section will be updated with results.*
+Full run: 99,080 local images + 30 SID_Set train shards -> 99,519 train /
+24,881 val combined. Took 9h13m (longer than section 5's 6h51m -- more
+shards to fetch, more images, and heavier per-image cost from the
+independent-stacking augmentation). Final: `train 0.2419 | val 0.1541 | F1
+0.9414` (combined val).
 
-**Expectation-setting**: 98%/<2% FN&FP cross-dataset is a very ambitious
-bar -- section 5's best cross-dataset result so far is 83.7% clean
-accuracy with 12-28% error rates. This iteration's changes are
-well-evidenced improvements, not a guaranteed path to the target in one
-pass; if the gap remains large after this run, the next levers are the
-lighter-fine-tune-depth experiment above, a third data source (GenImage),
-or accepting the frequency-signal architecture work as a bigger follow-up
-project.
+**Result on `Data/test`:**
+
+| | #5 (10 shards, one-of-four aug) | #6 (30 shards, stacking aug) |
+|---|---|---|
+| clean accuracy | 0.9540 | 0.9515 (-0.25pt) |
+| robust mean accuracy | 0.9118 | 0.9087 (-0.31pt) |
+
+Small dip, consistent with harder/more frequent augmentation making the
+PS5-only fit slightly less tight -- expected trade-off, not a concern on
+its own.
+
+**Result on the same fixed SID_Set sample (sections 4-6):**
+
+| | #3 (PS5-only) | #5 (10 shards) | #6 (30 shards + stacking aug) |
+|---|---|---|---|
+| clean accuracy | 0.6950 | 0.8367 | **0.8639** (+2.7pt vs #5) |
+| mean-transformed accuracy | 0.6924 | 0.8366 | **0.8645** (+2.8pt vs #5) |
+| FNR range across 15 conditions | 33-55% | 12-17% | **8.4-15.5%** |
+| FPR range across 15 conditions | 4-18% | 15-28% | **11.5-24.8%** |
+| ROC-AUC (clean) | 0.774 | 0.922 | **0.942** |
+
+**Finding**: real, consistent improvement -- better on almost every one of
+the 15 conditions individually, not just the average, and FNR in
+particular tightened notably (missed-AI-image rate down another third).
+Both changes (more shard diversity, independent-stacking augmentation)
+plausibly contributed; this run didn't isolate which helped more, so that
+attribution is unconfirmed.
+
+**Against the 98%/<2% FN&FP target**: not reached, and still a large gap
+-- clean accuracy on SID_Set is 86.4% (vs. 98% target) and FPR/FNR sit in
+the 8-25% range (vs. <2% target) despite two full iterations of real,
+measurable improvement. Two iterations bought roughly 3-15pt of
+cross-dataset accuracy each; closing the remaining ~12-14pt gap to 98% and
+getting error rates an order of magnitude lower likely needs a materially
+different lever, not another round of the same kind of tuning -- see the
+follow-ups below. Adopted as the new default (`config.yaml` already
+reflects this run's settings) since it's a strict improvement over #5 on
+the metric that matters (cross-dataset), for a negligible PS5 cost.
 
 ## Not yet attempted
 

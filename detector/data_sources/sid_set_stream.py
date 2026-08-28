@@ -32,6 +32,8 @@ from typing import Any
 
 from torch.utils.data import Dataset, Subset
 
+from ._network import retry_network_call
+
 try:
     import pyarrow.parquet as pq
     from huggingface_hub import HfApi, HfFileSystem
@@ -60,7 +62,10 @@ def _hf_path(repo_relative_path: str) -> str:
 
 
 def _shard_paths(prefix: str, limit: int) -> list[str]:
-    all_files = _HF_API.list_repo_files(REPO_ID, repo_type="dataset")
+    all_files = retry_network_call(
+        lambda: _HF_API.list_repo_files(REPO_ID, repo_type="dataset"),
+        description="SID_Set repo file listing",
+    )
     matches = sorted(f for f in all_files if f.startswith(f"data/{prefix}-") and f.endswith(".parquet"))
     if not matches:
         raise FileNotFoundError(
@@ -74,7 +79,10 @@ def _load_shard_index(path: str) -> list[tuple[str, int]]:
     """img_id + label only, for building the sample list cheaply -- no image
     bytes fetched here.
     """
-    table = pq.read_table(_hf_path(path), columns=["img_id", "label"], filesystem=_HF_FS)
+    table = retry_network_call(
+        lambda: pq.read_table(_hf_path(path), columns=["img_id", "label"], filesystem=_HF_FS),
+        description=f"SID_Set shard index fetch ({path})",
+    )
     return list(zip(table.column("img_id").to_pylist(), table.column("label").to_pylist()))
 
 
@@ -82,9 +90,17 @@ def _load_shard_index(path: str) -> list[tuple[str, int]]:
 def _load_shard_images(path: str):
     """Full image-bytes column for one shard, fetched once over HTTP and
     cached in memory for the rest of the run.
+
+    Retries through retry_network_call: a real incident during a
+    multi-hour training run had a transient network/DNS disruption
+    outlast huggingface_hub's own (much shorter) retry budget and crash
+    the whole run partway through epoch 1.
     """
     print(f"  Fetching image bytes for shard: {path} (first access only, ~10-40s)")
-    return pq.read_table(_hf_path(path), columns=["image"], filesystem=_HF_FS)
+    return retry_network_call(
+        lambda: pq.read_table(_hf_path(path), columns=["image"], filesystem=_HF_FS),
+        description=f"SID_Set shard image fetch ({path})",
+    )
 
 
 class SIDSetDataset(Dataset):

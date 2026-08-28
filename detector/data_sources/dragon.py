@@ -36,6 +36,8 @@ from typing import Any
 
 from torch.utils.data import Dataset, Subset
 
+from ._network import retry_network_call
+
 try:
     import pyarrow.parquet as pq
     from huggingface_hub import HfApi, HfFileSystem, constants as _hf_constants
@@ -76,7 +78,10 @@ def _hf_path(repo_relative_path: str) -> str:
 
 
 def _shard_paths(config: str, limit: int) -> list[str]:
-    all_files = _HF_API.list_repo_files(REPO_ID, repo_type="dataset", revision=PARQUET_REVISION)
+    all_files = retry_network_call(
+        lambda: _HF_API.list_repo_files(REPO_ID, repo_type="dataset", revision=PARQUET_REVISION),
+        description="DRAGON repo file listing",
+    )
     prefix = f"{config}/partial-train/"
     matches = sorted(f for f in all_files if f.startswith(prefix) and f.endswith(".parquet"))
     if not matches:
@@ -91,7 +96,10 @@ def _load_shard_index(path: str) -> list[str]:
     """model.txt only, for building the sample list cheaply -- no image
     bytes fetched here.
     """
-    table = pq.read_table(_hf_path(path), columns=["model.txt"], filesystem=_HF_FS)
+    table = retry_network_call(
+        lambda: pq.read_table(_hf_path(path), columns=["model.txt"], filesystem=_HF_FS),
+        description=f"DRAGON shard index fetch ({path})",
+    )
     return table.column("model.txt").to_pylist()
 
 
@@ -100,9 +108,17 @@ def _load_shard_images(path: str):
     """Full image-bytes column for one shard, fetched once over HTTP and
     cached in memory for the rest of the run. Smaller cache than
     sid_set_stream's (8 vs 32) since DRAGON's images are ~3.5x larger.
+
+    Retries through retry_network_call: a real incident during a
+    multi-hour training run had a transient network/DNS disruption
+    outlast huggingface_hub's own (much shorter) retry budget and crash
+    the whole run partway through epoch 1.
     """
     print(f"  Fetching image bytes for DRAGON shard: {path} (first access only)")
-    return pq.read_table(_hf_path(path), columns=["png"], filesystem=_HF_FS)
+    return retry_network_call(
+        lambda: pq.read_table(_hf_path(path), columns=["png"], filesystem=_HF_FS),
+        description=f"DRAGON shard image fetch ({path})",
+    )
 
 
 class DragonDataset(Dataset):

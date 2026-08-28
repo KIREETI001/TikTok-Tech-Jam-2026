@@ -305,9 +305,26 @@ shard -> exactly 320/80 train/val, matching 400*0.8/0.2), then the full
 40+675+320 / 10+169+80 local+SID_Set+DRAGON). `pipeline.py smoke` still
 passes with identical numbers.
 
-**Status: running** (`runs/mixed_v3`). Will evaluate against `Data/test`
-and the same fixed SID_Set sample used since section 4. *This section
-will be updated with results.*
+**First attempt crashed** after 2h40m: a transient network/DNS disruption
+(`getaddrinfo failed`, then a stale-socket error) while fetching a DRAGON
+shard outlasted `huggingface_hub`'s own retry budget and took the whole
+run down partway through epoch 1. Added `detector/data_sources/
+_network.py`'s `retry_network_call` (8 attempts, 60s apart) around every
+HF Hub network call in both `dragon.py` and `sid_set_stream.py` -- the
+latter is equally exposed over an equally long run, it just hadn't hit
+this yet. Unit-tested directly (recovers after N transient failures,
+correctly re-raises after exhausting attempts) before relaunching.
+Honest residual risk: the observed incident had ~160 minutes elapse with
+only one retry logged, consistent with a single call hanging far longer
+than any attempt budget allows (e.g. a pathological DNS hang after a
+network adapter reset) -- no outer retry can interrupt that. If it
+recurs, the more robust fix is decoupling fetching from training
+entirely (materialize SID_Set/DRAGON to local disk first, then train
+with `data_source: local`), not done here given the scope/time tradeoff.
+
+**Status: running (retry)** (`runs/mixed_v3`). Will evaluate against
+`Data/test` and the same fixed SID_Set sample used since section 4. *This
+section will be updated with results.*
 
 **Known caveat going in**: DRAGON being fake-only skews the combined
 pool's class balance somewhat toward fake (roughly 1.1-1.15:1 fake:real

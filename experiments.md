@@ -273,6 +273,48 @@ follow-ups below. Adopted as the new default (`config.yaml` already
 reflects this run's settings) since it's a strict improvement over #5 on
 the metric that matters (cross-dataset), for a negligible PS5 cost.
 
+## 7. Third data source -- DRAGON (in progress)
+
+Researched candidate third datasets for more generator diversity beyond
+SID_Set. Chosen: **DRAGON** (`lesc-unifi/dragon`, CC-BY-SA-4.0) -- real
+1024x1024 resolution (unlike CIFAKE's native 32x32, avoided in section 6
+for exactly this reason), generator-balanced across 25 modern diffusion
+models including several distilled/fast variants (LCM, SDXL Turbo/
+Lightning, Hyper-SD) not represented in SID_Set or PS5. Fake-only (no
+real class in this dataset) -- adds exclusively to the fake side of the
+combined pool.
+
+**Integration**: `detector/data_sources/dragon.py`, reusing the same
+HF-auto-converted-parquet mechanism as `sid_set_stream.py` (no new
+dependency). Extended `mixed.py` from a 2-way to 3-way concatenation.
+`config.yaml`: `dragon_config: Regular`, `dragon_shards: 5` (~2,000
+images -- each DRAGON image is ~1.9MB vs SID_Set's ~550KB, so kept modest
+to bound fetch time/memory).
+
+**Bug found and fixed during integration**: `huggingface_hub`'s default
+request timeout (10s) is tuned for small API calls, not a ~760MB
+single-shard parquet GET -- reproduced the resulting read-timeout/retry
+loop directly, confirmed raising it to 300s fixes it. Fixed by setting
+`huggingface_hub.constants.HF_HUB_DOWNLOAD_TIMEOUT` at `dragon.py`'s
+import time (attribute assignment, not just the env var, so it applies
+regardless of import order).
+
+**Verified before running at scale**: isolated dragon-only ingest+train (1
+shard -> exactly 320/80 train/val, matching 400*0.8/0.2), then the full
+3-way combination on small subsets (1035/259 exactly matches
+40+675+320 / 10+169+80 local+SID_Set+DRAGON). `pipeline.py smoke` still
+passes with identical numbers.
+
+**Status: running** (`runs/mixed_v3`). Will evaluate against `Data/test`
+and the same fixed SID_Set sample used since section 4. *This section
+will be updated with results.*
+
+**Known caveat going in**: DRAGON being fake-only skews the combined
+pool's class balance somewhat toward fake (roughly 1.1-1.15:1 fake:real
+by rough estimate) -- not compensated for yet (e.g. via `pos_weight` in
+the loss); worth checking if this run's FPR moves in an unexpected
+direction.
+
 ## Not yet attempted
 
 - **Frequency/noise-residual auxiliary signal** (deferred, bigger lift): the
@@ -281,7 +323,19 @@ the metric that matters (cross-dataset), for a negligible PS5 cost.
   signal alongside the Community Forensics logit (not a full rebuild of
   `origin/main`'s 4-branch fusion model -- that was assessed and explicitly
   not adopted, see the architecture-decision note below) is the next lever
-  if section 6's changes don't fully close the gap.
+  if section 7's changes don't fully close the gap.
+- **Lighter fine-tune depth** (Ojha et al.-motivated, still not tried):
+  freeze the last transformer block too (train only the head + norm).
+- **`pos_weight` in the loss** to directly counteract the FPR/FNR
+  asymmetry seen since section 4, rather than relying on data changes to
+  fix it indirectly.
+- **Post-hoc calibration** (temperature/Platt scaling) on the current
+  checkpoint's combined validation scores -- near-zero-cost, no retrain
+  needed, not yet tried on the section-6/7 checkpoints (only tried once,
+  in section 4a, on the section-3 checkpoint).
+- **Generator-balanced batch sampling** (`WeightedRandomSampler` instead of
+  plain `ConcatDataset` proportional mixing) so every source/generator is
+  seen evenly per epoch regardless of its raw image count.
 - **Lighter fine-tune depth** (Ojha et al.-motivated): freeze the last
   transformer block too (train only the head + norm), trading some clean
   accuracy for potentially better cross-generator generalization.

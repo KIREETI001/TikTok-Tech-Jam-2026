@@ -106,6 +106,22 @@ def _parser() -> argparse.ArgumentParser:
     materialize.add_argument(
         "--output", required=True, help="destination folder (gets real/ and fake/ subfolders)"
     )
+
+    report = commands.add_parser(
+        "report",
+        help=(
+            "turn one or more evaluate run-dirs' metrics.csv/summary.json into a "
+            "markdown report: the brief's Final Score (0.5*AUC_clean + 0.5*AUC_robust), "
+            "a per-condition accuracy/AUC table, and worst-condition callouts"
+        ),
+    )
+    report.add_argument(
+        "--run-dir", action="append", required=True, help="an evaluate run-dir; repeatable"
+    )
+    report.add_argument(
+        "--label", action="append", help="display name for each --run-dir, same order; optional"
+    )
+    report.add_argument("--output", help="write markdown to this file (also prints to stdout)")
     return parser
 
 
@@ -323,6 +339,67 @@ def _cmd_materialize_sid_set(args: argparse.Namespace) -> None:
     print(f"[MATERIALIZE] done: {counts}")
 
 
+def _read_json(path: Path) -> dict[str, Any]:
+    import json
+
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _report_section(run_dir: Path, label: str) -> str:
+    summary = _read_json(run_dir / "summary.json")
+    clean = summary["clean"]
+    robust = summary["robust_mean"]
+    worst = summary["worst_condition"]
+    final_score = 0.5 * clean["roc_auc"] + 0.5 * robust["roc_auc"]
+
+    lines = [f"## {label}", ""]
+    lines.append(
+        f"**Final Score** (brief formula: 0.5 x AUC_clean + 0.5 x AUC_robust): "
+        f"**{final_score:.4f}**"
+    )
+    lines.append("")
+    lines.append(f"Clean accuracy: {clean['accuracy']:.4f} | Clean ROC-AUC: {clean['roc_auc']:.4f}")
+    lines.append(
+        f"Robust-mean accuracy: {robust['accuracy']:.4f} | Robust-mean ROC-AUC: {robust['roc_auc']:.4f}"
+    )
+    lines.append("")
+    lines.append("| Condition | Accuracy | ROC-AUC | FPR | FNR |")
+    lines.append("|---|---|---|---|---|")
+    with (run_dir / "metrics.csv").open(newline="", encoding="utf-8") as stream:
+        for row in csv.DictReader(stream):
+            lines.append(
+                f"| {row['condition']} | {float(row['accuracy']):.4f} | "
+                f"{float(row['roc_auc']):.4f} | {float(row['fpr']):.4f} | {float(row['fnr']):.4f} |"
+            )
+    lines.append("")
+    lines.append(
+        f"Worst condition (accuracy): **{worst['accuracy']['condition']}** "
+        f"({worst['accuracy']['value']:.4f})"
+    )
+    lines.append(
+        f"Worst condition (ROC-AUC): **{worst['roc_auc']['condition']}** "
+        f"({worst['roc_auc']['value']:.4f})"
+    )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _cmd_report(args: argparse.Namespace) -> None:
+    run_dirs = [Path(p) for p in args.run_dir]
+    labels = list(args.label or [])
+    labels += [run_dirs[i].name for i in range(len(labels), len(run_dirs))]
+
+    sections = [
+        _report_section(run_dir, label) for run_dir, label in zip(run_dirs, labels, strict=True)
+    ]
+    document = "\n".join(["# Robustness Report", ""] + sections)
+
+    print(document)
+    if args.output:
+        Path(args.output).write_text(document + "\n", encoding="utf-8")
+        print(f"[REPORT] written to {Path(args.output).resolve()}")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
@@ -331,6 +408,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "materialize-sid-set":
             _cmd_materialize_sid_set(args)
+            return 0
+        if args.command == "report":
+            _cmd_report(args)
             return 0
         settings = _settings(args)
         if args.command == "ingest":

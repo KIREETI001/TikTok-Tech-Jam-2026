@@ -1,10 +1,12 @@
 # data_source: "local" (data_dir below only), "sid_set_stream" (SID_Set
-# streamed from the HF Hub only, no data_dir needed), or "mixed" (both,
-# concatenated -- the default, see detector/data_sources/mixed.py and
-# experiments.md section 5 for why).
+# only), "dragon" (DRAGON only, fake-only -- see detector/data_sources/
+# dragon.py), or "mixed" (local + sid_set_stream + dragon concatenated --
+# the default; see experiments.md sections 5 and 7 for why).
 data_source: mixed
 sid_set_train_shards: 30
 sid_set_val_shards: 1
+dragon_config: Regular
+dragon_shards: 5
 
 data_dir: ../Data/train
 output_dir: runs/latest

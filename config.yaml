@@ -6,7 +6,26 @@ data_source: mixed
 sid_set_train_shards: 30
 sid_set_val_shards: 1
 dragon_config: Regular
-dragon_shards: 5
+# 0 for now: DRAGON has hit a persistent (not transient) DNS resolution
+# failure against the HF Hub in this environment across multiple full
+# training attempts -- set back to 5+ once that clears (mixed.py skips
+# DRAGON entirely when this is 0, no network touch at all).
+dragon_shards: 0
+
+# model_type: "vit" (default, Community Forensics alone) or "hybrid"
+# (Community Forensics + a frequency branch, fused as a zero-init residual
+# correction -- see detector/model.py's HybridDetector). vit_checkpoint,
+# only used when model_type is "hybrid", loads the ViT half from an
+# existing checkpoint (e.g. runs/mixed_v2/best.pt) instead of the raw
+# pinned Community Forensics weights -- important: the raw weights have a
+# strong "predict real" bias on this project's data (measured: 100% real
+# predictions on a balanced 480-image set) since they were never
+# fine-tuned on this task, so omitting this silently builds on a much
+# weaker base than the "already validated" model the hybrid design
+# assumes.
+model_type: vit
+# model_type: hybrid
+# vit_checkpoint: runs/mixed_v2/best.pt
 
 data_dir: ../Data/train
 output_dir: runs/latest

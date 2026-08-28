@@ -12,7 +12,14 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
 from .data import ImageDataset, ImageRecord
-from .model import Detector, create_detector, resolve_device, save_checkpoint
+from .model import (
+    Detector,
+    HybridDetector,
+    create_detector,
+    create_hybrid_detector,
+    resolve_device,
+    save_checkpoint,
+)
 from .transforms import build_eval_transform, build_train_transform
 
 def _seed_everything(seed: int) -> None:
@@ -60,6 +67,15 @@ def _train_epoch(
         optimizer.zero_grad(set_to_none=True)
         loss = loss_function(model(images), labels)
         loss.backward()
+        # Added after the hybrid (ViT + frequency branch) model showed real
+        # training instability in benchmark testing: even with the
+        # frequency head's final layer zero-initialized (so the model
+        # starts out mathematically identical to the ViT-only model, see
+        # HybridDetector's docstring), loss diverged to ~3x higher than the
+        # ViT-only baseline within the first epoch. Clipping bounds how
+        # much a single early, poorly-scaled gradient step (from the
+        # freshly-initialized frequency branch) can perturb the model.
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
 
         batch_size = labels.numel()
@@ -116,6 +132,8 @@ def train_model(
     local_files_only: bool = False,
     threshold: float = 0.5,
     train_augment_probability: float = 0.7,
+    model_type: str = "vit",
+    vit_checkpoint: str | Path | None = None,
 ) -> Path:
     """Fine-tune the detector on local-disk image records and return the
     best-F1 checkpoint path. Thin wrapper around
@@ -145,6 +163,8 @@ def train_model(
         threshold=threshold,
         train_count=len(train_records),
         val_count=len(val_records),
+        model_type=model_type,
+        vit_checkpoint=vit_checkpoint,
     )
 
 
@@ -165,6 +185,8 @@ def train_model_from_datasets(
     threshold: float = 0.5,
     train_count: int | None = None,
     val_count: int | None = None,
+    model_type: str = "vit",
+    vit_checkpoint: str | Path | None = None,
 ) -> Path:
     """Fine-tune the detector on pre-built, already-transformed datasets.
 
@@ -173,6 +195,10 @@ def train_model_from_datasets(
     integration point for data sources that have no local file path to hand
     :class:`detector.data.ImageDataset`, such as one that streams images
     over HTTP.
+
+    ``model_type``: ``"vit"`` (default, Community Forensics alone) or
+    ``"hybrid"`` (Community Forensics + a frequency branch, fused -- see
+    detector.model.HybridDetector).
     """
 
     if train_count is None:
@@ -206,11 +232,21 @@ def train_model_from_datasets(
     )
     val_loader = DataLoader(val_dataset, shuffle=False, **loader_options)
 
-    model = create_detector(
-        pretrained=pretrained,
-        device=resolved_device,
-        local_files_only=local_files_only,
-    )
+    if model_type == "hybrid":
+        model: Detector | HybridDetector = create_hybrid_detector(
+            pretrained=pretrained,
+            device=resolved_device,
+            local_files_only=local_files_only,
+            vit_checkpoint=vit_checkpoint,
+        )
+    elif model_type == "vit":
+        model = create_detector(
+            pretrained=pretrained,
+            device=resolved_device,
+            local_files_only=local_files_only,
+        )
+    else:
+        raise ValueError(f"Unknown model_type {model_type!r}; choose 'vit' or 'hybrid'.")
     model.configure_finetuning()
     optimizer = torch.optim.AdamW(
         model.trainable_parameters(), lr=learning_rate, weight_decay=weight_decay

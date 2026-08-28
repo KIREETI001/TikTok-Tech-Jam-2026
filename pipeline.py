@@ -17,7 +17,7 @@ from PIL import Image
 from detector.data import ingest_training_data, load_manifest
 from detector.data_sources import get_data_source
 from detector.evaluation import evaluate, predict_folder
-from detector.model import MODEL_PARAMETERS, resolve_device
+from detector.model import resolve_device
 from detector.training import train_model, train_model_from_datasets
 
 
@@ -194,8 +194,13 @@ def _train(
         threshold=float(settings.get("threshold", 0.5)),
         train_count=info["train_count"],
         val_count=info["val_count"],
+        model_type=str(settings.get("model_type", "vit")),
+        vit_checkpoint=settings.get("vit_checkpoint"),
     )
-    print(f"[MODEL] parameters={MODEL_PARAMETERS:,} checkpoint={checkpoint}")
+    saved_parameter_count = torch.load(checkpoint, map_location="cpu", weights_only=True)["metadata"][
+        "parameter_count"
+    ]
+    print(f"[MODEL] parameters={saved_parameter_count:,} checkpoint={checkpoint}")
     return checkpoint
 
 

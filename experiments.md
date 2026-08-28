@@ -322,45 +322,136 @@ recurs, the more robust fix is decoupling fetching from training
 entirely (materialize SID_Set/DRAGON to local disk first, then train
 with `data_source: local`), not done here given the scope/time tradeoff.
 
-**Status: running (retry)** (`runs/mixed_v3`). Will evaluate against
-`Data/test` and the same fixed SID_Set sample used since section 4. *This
-section will be updated with results.*
+**Status: abandoned.** A third attempt hit the identical DNS failure on a
+different shard, confirming it's persistent (not transient) in this
+environment -- no amount of retrying fixes it. Killed the run rather than
+keep burning GPU time on a network problem outside this codebase's
+control. `dragon_shards` defaults to `0` in `config.yaml` now (see
+`mixed.py`'s skip path, section 9), so training proceeds on the proven
+PS5+SID_Set pool without it. Re-enable if/when the network issue clears.
 
-**Known caveat going in**: DRAGON being fake-only skews the combined
-pool's class balance somewhat toward fake (roughly 1.1-1.15:1 fake:real
-by rough estimate) -- not compensated for yet (e.g. via `pos_weight` in
-the loss); worth checking if this run's FPR moves in an unexpected
-direction.
+## 8. Reading the organizer's own brief -- hybrid architecture
+
+The actual TikTok TechJam PS5 brief slides became available partway
+through this work (not just the earlier text summary). Two findings
+changed the plan:
+
+- **Rules risk**: the brief explicitly says "do not directly replicate
+  existing models or approaches," and warns "don't just fine-tune a
+  classifier... is it a real artifact, or a dataset shortcut?" Community
+  Forensics ViT-S is an *already-complete* published detector, not a
+  generic backbone like the ResNet/ViT/CLIP/DINOv2 the rules name --
+  fine-tuning it further, as sections 2-7 did, sits closer to
+  "replication" than the brief seems to want.
+- **The brief's own stated key insight** (slide 8): "best detectors
+  combine high-level semantics + low-level frequency patches." This is
+  exactly the piece worth reviving from `upstream/main`'s abandoned
+  4-branch fusion model (Phase 3) -- not the whole thing (camera-noise and
+  CLIP branches need their own pretraining/dependencies, too much for the
+  time left), just the frequency branch.
+- **Brief's scoring formula** (slide 12): Final Score = 0.5 x AUC_clean +
+  0.5 x AUC_robust, ROC-AUC-based, not accuracy-based. Built
+  `pipeline.py report` to compute this directly from existing
+  summary.json/metrics.csv. Run against the current best checkpoint
+  (section 6, `runs/mixed_v2`): **Final Score 0.9798 on PS5 `Data/test`,
+  0.9417 on SID_Set** -- both above the brief's own worked example
+  (clean 0.99 AUC, unseen-generator 0.80 AUC), since ROC-AUC is far more
+  forgiving of threshold miscalibration than the accuracy numbers tracked
+  up to this point.
+
+Also ran a compression-history audit (DDA/NeurIPS 2025 insight: JPEG
+history can become a spurious real-vs-fake signal): PS5's real/fake
+compression is nearly identical (0.904 vs 0.905 bytes/px, no shortcut
+risk), but **SID_Set's fake images are ~28% more compressed than its real
+images** (0.231 vs 0.319 bytes/px) -- a real, evidenced risk, plausibly
+explaining part of the elevated FPR (22-25%) seen on SID_Set throughout
+sections 5-7. Documented as a known limitation rather than fixed (would
+need a data-recompression-normalization pass, too big a lift right now).
+
+### Hybrid model: two real bugs found and fixed via benchmark testing
+
+Implemented `detector/model.py`'s `HybridDetector`: Community Forensics
+ViT (frozen, per Ojha et al.'s finding that heavier fine-tuning of the
+semantic backbone learns narrower, more generator-specific shortcuts) +
+a ported `FrequencyBranch` (from `upstream/main`, log-magnitude FFT
+through a shallow CNN + radial power profile) + a fusion mechanism.
+Tested on a 3-epoch/2400-image benchmark before any full run (exactly
+the point of that step):
+
+1. **First fusion design failed to learn at all**: concatenating the
+   ViT's logit with the frequency branch's 256-dim embedding into a
+   fresh `Linear` layer left F1 stuck at 0.667 (loss converging to
+   ln(2)) -- a fresh Linear layer treats all 257 dims symmetrically,
+   diluting the one genuinely strong signal into 256 dims of untrained
+   noise. Raising the learning rate 100x didn't fix it (confirmed the
+   fusion design was the problem, not the LR). **Fix**: zero-initialized
+   residual -- the frequency branch now *adds* a correction to the ViT
+   logit, with its final layer zero-initialized so the hybrid starts
+   mathematically identical to the ViT-only model (verified
+   byte-identical output, multiple modes, before any training).
+
+2. **Still unstable after the fix** (loss ~3x the ViT-only baseline, F1
+   0). Traced step-by-step: the frequency branch's contribution stayed
+   genuinely negligible (~1e-4) throughout -- the real cause was that
+   `create_hybrid_detector` built its ViT half from the *raw* pinned
+   Community Forensics checkpoint, never fine-tuned on this task.
+   Confirmed directly: raw checkpoint predicts "real" for 100% of a
+   balanced 480-image set. **Fix**: added `vit_checkpoint` so the hybrid
+   actually builds on an already-fine-tuned checkpoint (e.g.
+   `runs/mixed_v2/best.pt`), matching its own design rationale. Retested:
+   F1 0.9426->0.9446, loss stable throughout -- both failures were
+   methodology gaps (which base checkpoint), not a flaw in the fusion
+   mechanism itself.
+
+**Quick SID_Set check** (hybrid, ViT half = `runs/mixed_v2/best.pt`,
+frequency branch fine-tuned only on 1,920 PS5-only benchmark images, no
+new diversity): clean 0.8628 / mean-transformed 0.8656 -- essentially
+identical to `mixed_v2` alone (0.8639/0.8645), within noise. Expected:
+this was a mechanism-stability check, not a real test of whether the
+frequency branch helps generalization, since it saw zero new
+cross-dataset diversity. **Not yet run**: a full-scale hybrid training
+pass on the complete PS5+SID_Set pool -- that's the actual test of
+whether this closes any more of the cross-dataset gap, and needs the
+same multi-hour commitment as sections 5-7's full runs.
+
+`config.yaml` stays on `model_type: vit` (the proven section-6 checkpoint)
+pending that full-scale test.
 
 ## Not yet attempted
 
-- **Frequency/noise-residual auxiliary signal** (deferred, bigger lift): the
-  cross-dataset gap in section 4 is exactly the kind of thing pixel-content
-  models struggle with across generators; a lightweight frequency-domain
-  signal alongside the Community Forensics logit (not a full rebuild of
-  `origin/main`'s 4-branch fusion model -- that was assessed and explicitly
-  not adopted, see the architecture-decision note below) is the next lever
-  if section 7's changes don't fully close the gap.
+- **Full-scale hybrid training run** (section 8 built and benchmark-
+  validated the mechanism; not yet run at scale): fine-tune
+  `HybridDetector`'s frequency branch on the complete PS5+SID_Set mixed
+  pool (`model_type: hybrid`, `vit_checkpoint: runs/mixed_v2/best.pt`,
+  multiple epochs) to properly test whether it closes any more of the
+  cross-dataset gap -- the section-8 quick check only saw 1,920 PS5-only
+  images, no new diversity, so it couldn't test this. Needs the same
+  multi-hour commitment as sections 5-7's full runs.
 - **Lighter fine-tune depth** (Ojha et al.-motivated, still not tried):
-  freeze the last transformer block too (train only the head + norm).
+  freeze the last transformer block too (train only the head + norm),
+  trading some clean accuracy for potentially better cross-generator
+  generalization.
 - **`pos_weight` in the loss** to directly counteract the FPR/FNR
   asymmetry seen since section 4, rather than relying on data changes to
   fix it indirectly.
 - **Post-hoc calibration** (temperature/Platt scaling) on the current
   checkpoint's combined validation scores -- near-zero-cost, no retrain
-  needed, not yet tried on the section-6/7 checkpoints (only tried once,
+  needed, not yet tried on the section-6/7/8 checkpoints (only tried once,
   in section 4a, on the section-3 checkpoint).
 - **Generator-balanced batch sampling** (`WeightedRandomSampler` instead of
   plain `ConcatDataset` proportional mixing) so every source/generator is
   seen evenly per epoch regardless of its raw image count.
-- **Lighter fine-tune depth** (Ojha et al.-motivated): freeze the last
-  transformer block too (train only the head + norm), trading some clean
-  accuracy for potentially better cross-generator generalization.
-- **Third-dataset holdout**: sections 4-6 only check generalization to one
-  additional dataset (SID_Set). A truly "any dataset" claim would want at
-  least one more, still-unseen source (GenImage is a strong real-resolution
-  candidate) to confirm the fix isn't just overfitting to two datasets
-  instead of one.
+- **SID_Set compression-history normalization** (section 8 finding): its
+  fake images are ~28% more compressed than its real images, a plausible
+  spurious shortcut per DDA (NeurIPS 2025) -- would need a recompression
+  pass on one class to remove the confound, not yet attempted.
+- **Third-dataset holdout**: sections 4-8 only check generalization to
+  SID_Set (DRAGON was abandoned before contributing any images, section 7).
+  A truly "any dataset" claim would want at least one more, still-unseen
+  source (GenImage is a strong real-resolution candidate) to confirm the
+  fix isn't just overfitting to two datasets instead of one.
+- **Publish model weights** per the brief's stated rules for winning teams
+  ("open-source... model weights") -- not yet done for any checkpoint.
 
 ## Architecture decision (for context, not a training run)
 

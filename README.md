@@ -199,14 +199,17 @@ Current default config (`mixed` data source, `train_augment_probability:
 
 | | PS5 `Data/test` (unseen) | SID_Set (unseen, different dataset) |
 |---|---|---|
-| Clean accuracy | 95.40% | 83.67% |
-| Mean robust accuracy (15 conditions) | 91.18% | 83.66% |
+| Clean accuracy | 95.15% | 86.39% |
+| Mean robust accuracy (15 conditions) | 90.87% | 86.45% |
 
 The SID_Set column is a genuine cross-dataset generalization check, not a
-held-out split of the same data -- see `experiments.md` sections 4-5 for how
+held-out split of the same data -- see `experiments.md` sections 4-6 for how
 a ~95%/~70% gap there was diagnosed (ruled out calibration and
-over-aggressive fine-tuning first) and closed by mixing SID_Set images into
-training.
+over-aggressive fine-tuning first), closed substantially by mixing SID_Set
+images into training, and narrowed further with more generator diversity
+and a research-validated augmentation recipe. Still well short of a <2%
+false-positive/false-negative target on cross-dataset data (currently
+11-25%) -- see experiments.md section 6 for the honest gap analysis.
 
 ## Limitations
 

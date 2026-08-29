@@ -36,7 +36,7 @@ cross-generator test, not a held-out split.
 
 ```
 Community Forensics ViT-S/16  (21.7M params, frozen after stage 1)  → base logit
-  + frozen OpenAI CLIP ViT-L/14 branch      → zero-init residual Δ₁
+  + frozen OpenAI CLIP ViT-B/16 branch      → zero-init residual Δ₁
   + SAFE DWT high-frequency branch          → zero-init residual Δ₂
                                     logit = base + Δ₁ + Δ₂
 ```
@@ -111,8 +111,7 @@ Two of the biggest levers were data, not architecture — matching the deck's
   systematically lower AI-scores than latent-diffusion fakes; no single
   cutoff is optimal for both. We report the threshold-free score as the
   headline and ship the held-out calibration recipe.
-- **Model size vs a bigger ensemble.** ~325M inference params (mostly the
-  frozen CLIP tower), 609K trainable. Runs on CPU in ~1s/image — the demo
+- **Model size vs a bigger ensemble.** ~108M inference params (ViT-S 22M + frozen CLIP-B 86M), 609K trainable. Runs on CPU in ~1s/image — the demo
   works on a laptop. The deck: *"a 2-branch ensemble may win 1% but cost you
   the demo. Ship what runs."*
 
@@ -131,5 +130,5 @@ Two of the biggest levers were data, not architecture — matching the deck's
 ## Built with
 
 PyTorch 2.6 (Intel Arc XPU — no CUDA), timm, pytorch-wavelets, scikit-learn.
-Backbones: `OwensLab/commfor-model-224`, `openai/clip-vit-large-patch14`.
+Backbones: `OwensLab/commfor-model-224`, `openai/clip-vit-base-patch16`.
 All training on a single laptop iGPU.

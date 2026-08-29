@@ -34,7 +34,7 @@ DDIM 0.92 · Imagen 0.95 · DALL·E 0.99 · VQDM 0.99.
 ```
 Community Forensics ViT-S/16 @224   21,666,049 params   (frozen after warm-start)
   └─ base logit
-  + frozen OpenAI CLIP ViT-L/14 branch    → LayerNorm → Linear → zero-init residual head
+  + frozen OpenAI CLIP ViT-B/16 branch    → LayerNorm → Linear → zero-init residual head
   + SAFE DWT high-frequency branch         → conv stem → zero-init residual head   (optional)
   ────────────────────────────────────────────────────────────────────
   logit = base + Σ branch corrections
@@ -42,7 +42,7 @@ Community Forensics ViT-S/16 @224   21,666,049 params   (frozen after warm-start
 
 - **Backbone**: `OwensLab/commfor-model-224` (timm `vit_small_patch16_224.augreg_in21k_ft_in1k`).
   A purpose-built AI-image detector, #1 of 23 on its own benchmark out-of-the-box.
-- **Semantic branch**: `openai/clip-vit-large-patch14` vision tower, **frozen**.
+- **Semantic branch**: `openai/clip-vit-base-patch16` vision tower, **frozen** (ViT-L/14 was ~6x slower on the Arc iGPU for a marginal gain).
   A fine-tuned backbone loses ~0.20 AUC seen→unseen; a frozen large ViT loses
   ~0.09 — freezing is what makes it generalise.
 - **Frequency branch** (SAFE, KDD 2025): input is the DWT `bior1.3` diagonal
@@ -51,7 +51,7 @@ Community Forensics ViT-S/16 @224   21,666,049 params   (frozen after warm-start
   begins identical to the proven ViT and only ever adds a correction. No
   per-branch auxiliary loss (that pressure makes a shallow branch memorise
   training-generator spectra and invert on unseen ones).
-- Trainable parameters: ~0.3–0.6M. Total inference: ~325M — 6× under the 2B limit.
+- Trainable parameters: ~0.3–0.6M. Total inference: ~108M (ViT-S 22M + frozen CLIP-B 86M) — ~18x under the 2B limit.
   Runs on CPU at ~1 s/image.
 
 ---

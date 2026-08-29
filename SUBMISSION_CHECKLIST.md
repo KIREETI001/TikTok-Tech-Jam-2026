@@ -16,7 +16,7 @@ Presentation 10%.
 
 ## Rules compliance (violation = DQ)
 
-- [x] Model < 2B params — 22M (ViT) + 86M (frozen CLIP-B) = ~108M inference
+- [x] Model < 2B params — 22M (ViT) + 86M frozen (CLIP-B/16) = ~108M inference
 - [x] Public pretrained backbones — `OwensLab/commfor-model-224`,
       `openai/clip-vit-base-patch16` (both public)
 - [x] Custom code MIT/Apache — repo license
@@ -45,5 +45,5 @@ Presentation 10%.
 
 - [ ] Composite degradation conditions (screenshot, social-upload) in the table
 - [ ] TTA (`--tta` 5-crop) folded into `evaluation.py`
-- [ ] CLIP ViT-L/14 via precomputed embeddings (bigger lever, needs the cache)
+- [x] CLIP fusion via precomputed embeddings — ViT-B/16 done (+0.03 organiser); ViT-L/14 ~6x slower, deferred
 - [ ] Camera-RAW (RAISE-1k) FPR diagnostic slice

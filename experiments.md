@@ -368,6 +368,16 @@ explaining part of the elevated FPR (22-25%) seen on SID_Set throughout
 sections 5-7. Documented as a known limitation rather than fixed (would
 need a data-recompression-normalization pass, too big a lift right now).
 
+> **Superseded by section 9's shortcut probe.** The "plausibly explaining
+> part of the elevated FPR" claim above does not survive measurement. The
+> compression gap is real, but it lives in the *file*, not in the pixels:
+> SID_Set scores 95.06% on the metadata probe and only 54.93% (+/- 4.34, an
+> interval that nearly touches chance) on the pixel probe that sees the
+> actual 224px crop, and `recompressed_bpp` is not among its top pixel
+> features. Whatever drives the SID_Set FPR, a compression shortcut
+> reaching the model is not a supported explanation, and the
+> recompression-normalization item it motivated is not worth the lift.
+
 ### Hybrid model: two real bugs found and fixed via benchmark testing
 
 Implemented `detector/model.py`'s `HybridDetector`: Community Forensics
@@ -416,6 +426,117 @@ same multi-hour commitment as sections 5-7's full runs.
 
 `config.yaml` stays on `model_type: vit` (the proven section-6 checkpoint)
 pending that full-scale test.
+
+## 9. Auditing our own data: the corpus is 32x32
+
+Ported ziyangchua02's shortcut probe (`scripts/shortcut_probe.py`):
+gradient-boosted trees on properties carrying no generation evidence --
+file metadata, and pixel statistics of the exact 224px crop the model is
+fed. Whatever those recover is label information available without
+detecting anything. Chance is 50%.
+
+| Corpus | Metadata | Pixels, native crop | Pixels, our pipeline |
+|---|---|---|---|
+| PS5 train | 52.87% | 72.60% | 74.47% |
+| PS5 test | 52.33% | 74.93% | 76.93% |
+| SID_Set | 95.06% | 54.93% | 57.80% |
+
+Three findings. **The two corpora are confounded in opposite ways** --
+PS5 is clean at file level but ~75% separable from pixel statistics
+alone; SID_Set is the reverse. **Our resize makes leakage worse**,
+consistently, on all three corpora (+1.9 to +2.9 points), with
+`edge_std`'s importance roughly doubling: normalising every image to one
+scale turns edge density into a cleanly comparable smoothness measure,
+whereas at native resolution it is confounded with the image's own
+resolution. And **~75% of PS5's label is recoverable from ten summary
+statistics** with no notion of generation, which caps how much of our
+~95% accuracy can be attributed to artifact detection.
+
+### The finding that reframed everything
+
+Checking image dimensions before running the crop-policy experiment:
+**every PS5 image is 32x32.** `Data/train` (99,080) and `Data/test`
+(19,584) are CIFAKE -- CIFAR-10 reals against Stable Diffusion 1.4
+fakes, one generator, upscaled 7x to reach the model's 224 input. Every
+evaluation set is 1024px from many generators.
+
+This killed two planned changes outright, both verified empirically
+rather than argued:
+
+- **Crop-not-resize**: native vs resize retains detail **1.00x** on our
+  data. There is no high-frequency band left at 32px to preserve. (On a
+  synthetic 1024px checkerboard the same code shows 15x, so the
+  mechanism is real -- our data simply has nothing for it to act on.)
+- **Multi-crop inference**: after upscaling 32->224 the image *is* 224,
+  so all five crops are identical; measured crop-to-crop spread
+  **0.0000**. Retains value only on the 1024px eval sets.
+
+It also retires the calibration work: the brief scores
+`0.5*AUC_clean + 0.5*AUC_robust`, and ROC-AUC is threshold-free, so
+threshold sweeps, `pos_weight` and calibration cannot move the score at
+all. Only separability can.
+
+## 10. WildFake/COCO benchmark -- the first honest number
+
+Built `scripts/evaluate_wildfake.py` to score against the organisers'
+own composition (1,000 COCO2017 reals vs 1,000 WildFake fakes, 200 each
+across five generators), streamed from ModelScope over HTTP range
+requests rather than downloading 1.2TB. Eval-only, kept out of
+`detector/data_sources/` so no training path can reach it.
+
+**`runs/mixed_v2` (the section-6 checkpoint):**
+
+| | Ours | Another team's reported figure | Gap |
+|---|---|---|---|
+| Final Score | **0.8131** | 0.8705 | -0.057 |
+| AUC_clean | 0.8495 | 0.8734 | -0.024 |
+| AUC_robust | **0.7767** | 0.8676 | **-0.091** |
+
+| Generator | AUC clean | AUC robust |
+|---|---|---|
+| adm | 0.623 | 0.522 |
+| ddpm | 0.735 | 0.643 |
+| ddim | 0.911 | 0.843 |
+| vqdm | 0.979 | 0.866 |
+| dalle | 0.985 | 0.972 |
+
+Two things this says that the PS5 and SID_Set numbers could not.
+
+**Our variance is the problem, not our average.** We beat the reference
+on three generators, often substantially, and lose badly on two. They
+sit in a tight 0.81-0.90 band everywhere. A detector scoring 0.99 on one
+generator and 0.52 on another has learned some families and not others --
+Community Forensics' finding that generalization tracks generator
+diversity, restated as our own result.
+
+**The gap is robustness, not detection.** Clean is within 0.024 of
+theirs; robust is 0.091 behind. Their score drops 0.006 from clean to
+robust, ours drops 0.073 -- and the brief weights robustness at 50%. The
+likely cause is the same 32x32 finding: we apply corruption augmentation
+(p=0.7) to images that were ~80% 32px thumbnails, so the model learned
+robustness to "degrade a 32px image, then upscale 7x", which shares
+little with "degrade a 1024px image, then downscale". We trained
+robustness at the wrong scale.
+
+**And it recalibrates the earlier numbers.** PS5 test at 0.9798 is
+CIFAKE's own held-out split -- same resolution, same single generator --
+so it measured in-distribution fit rather than detection ability. 0.8131
+is the first figure measured the way the competition will measure us.
+
+## 11. Rebalancing toward real resolution (`runs/highres_v1`)
+
+**Status: running.** SID_Set shards 30 -> 100 (~67.5k train images) and a
+new `local_max_train_images` cap holding CIFAKE to 20k, class-balanced so
+the cap moves the source ratio without also moving the class prior.
+High-resolution images go from ~20% to **77%** of training at similar
+total volume (87,513 train / 21,880 val).
+
+The cap applies to validation at the same ratio -- caught after the first
+launch, where capping only training left validation 54% CIFAKE while
+training was 23%. Validation F1 selects the checkpoint, so that run would
+have optimised for the 32px distribution the cap exists to move away
+from: exactly the selection-metric failure ziyangchua02 documented. Both
+splits now sit at 77.1% high-resolution.
 
 ## Not yet attempted
 

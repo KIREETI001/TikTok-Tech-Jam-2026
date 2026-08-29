@@ -35,6 +35,25 @@ CONDITION_SPECS: Final[tuple[tuple[str, str, float | int | None], ...]] = (
 EVALUATION_CONDITIONS: Final = tuple(name for name, _, _ in CONDITION_SPECS)
 _SPEC_BY_NAME = {name: (operation, value) for name, operation, value in CONDITION_SPECS}
 
+# condition -> the real-world effect it is a variant of. The operation name
+# already is that grouping, so this is a view of CONDITION_SPECS rather than a
+# second list that could drift from it.
+#
+# Why it matters: the 14 transformed conditions are not evenly spread across
+# effects -- JPEG has four severities, centre-crop has one. Averaging the
+# conditions flat gives JPEG 4/14 of the robustness score and crop 1/14, which
+# weights the metric by how many severities each effect happens to have been
+# given rather than by how much each effect matters. Averaging the six groups
+# instead gives each effect equal say.
+#
+# Both are reported because we do not know which the organisers compute, and
+# they differ: on the WildFake benchmark our AUC_robust is 0.7767 flat against
+# 0.7888 grouped (Final Score 0.8131 vs 0.8192).
+CONDITION_GROUPS: Final[dict[str, str]] = {
+    name: operation for name, operation, _ in CONDITION_SPECS if operation != "identity"
+}
+TRANSFORM_GROUPS: Final = tuple(dict.fromkeys(CONDITION_GROUPS.values()))
+
 
 def _jpeg(image: Image.Image, quality: int) -> Image.Image:
     buffer = BytesIO()

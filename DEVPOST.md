@@ -39,7 +39,7 @@ Community Forensics ViT-S/16   21.7M params   (frozen after warm-start)  → bas
                                 logit = base + Δ
 ```
 
-~108M parameters at inference (22M ViT + 86M frozen CLIP), **609K trainable**
+~108M parameters at inference (22M ViT + 86M frozen CLIP), ~200K trainable (fusion head)
 — 18× under the 2B limit, runs on a laptop CPU at ~1 s/image.
 
 - **Purpose-built backbone.** Community Forensics ViT-S is a detector trained
@@ -109,8 +109,11 @@ The metric is threshold-free, but a deployable detector needs an operating
 point. We fit it with a 5-way split: `train / val / genval (one withheld
 generator — fits the threshold) / calval (a different withheld generator —
 picks the rule) / holdout (reported, never an input)`. This took recall on
-unseen fakes from ~25% to ~98% with zero change to AUC. Calibrated threshold:
-0.240, genval FPR 1.4% / FNR 1.3%, calval 1.4% / 2.2%.
+unseen fakes from ~25% to ~98% with zero change to AUC. Calibrated threshold
+**0.215**, genval AUC 0.999 (FPR 1.2% / FNR 1.2%), calval 0.998 (1.2% / 2.4%).
+On the organiser set that same threshold gives FNR ~23% — pixel-diffusion
+fakes score lower, so no one cutoff serves both families. The score is
+threshold-free; the recipe is shipped.
 
 ## Iteration log — what actually moved the number
 

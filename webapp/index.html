@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Real or Generated</title>
+<style>
+  :root {
+    --bg: #0F1216;
+    --panel: #171C22;
+    --panel-2: #1E242C;
+    --line: #2A323C;
+    --ink: #E6EAEF;
+    --ink-dim: #97A1AD;
+    --real-ok: #35B37E;
+    --ai: #E06A55;
+    --accent: #5B9BD5;
+    --mono: ui-monospace, "SF Mono", "IBM Plex Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #F5F7FA; --panel: #FFFFFF; --panel-2: #F0F3F7; --line: #DDE3EA;
+      --ink: #131820; --ink-dim: #5C6773; --accent: #2E6FB0;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 2.5rem 1.25rem 4rem;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; }
+
+  header { margin-bottom: 1.75rem; }
+  h1 { font-size: 1.65rem; font-weight: 600; margin: 0 0 .35rem; letter-spacing: -.02em; }
+  .sub { color: var(--ink-dim); margin: 0; font-size: .95rem; max-width: 62ch; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 780px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 1.15rem;
+  }
+
+  #drop {
+    border: 1.5px dashed var(--line); border-radius: 8px; padding: 2.25rem 1rem;
+    text-align: center; cursor: pointer; color: var(--ink-dim);
+    transition: border-color .15s, background .15s;
+  }
+  #drop:hover, #drop.over { border-color: var(--accent); background: var(--panel-2); }
+  #drop.has { padding: .75rem; border-style: solid; }
+  #drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #preview { max-width: 100%; max-height: 260px; border-radius: 6px; display: block; margin: 0 auto; }
+  .hint { font-size: .8rem; color: var(--ink-dim); margin-top: .6rem; text-align: center; }
+
+  .verdict { text-align: center; padding: .5rem 0 .25rem; }
+  .p { font: 600 3rem/1 var(--mono); letter-spacing: -.03em; }
+  .p.real { color: var(--real-ok); }
+  .p.ai { color: var(--ai); }
+  .label { font-size: .8rem; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-dim); margin-top: .4rem; }
+  .meta { font: .78rem/1.5 var(--mono); color: var(--ink-dim); text-align: center; margin-top: .75rem; min-height: 1.2em; }
+
+  .bar { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; margin: 1rem 0 .35rem; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+
+  button {
+    font: 500 .9rem system-ui, sans-serif; color: var(--ink);
+    background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 7px; padding: .55rem 1rem; cursor: pointer; width: 100%;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #08121C; font-weight: 600; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  h2 { font-size: .78rem; letter-spacing: .09em; text-transform: uppercase;
+       color: var(--ink-dim); margin: 0 0 .85rem; font-weight: 600; }
+
+  table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  th { text-align: left; font-weight: 600; color: var(--ink-dim); font-size: .7rem;
+       letter-spacing: .07em; text-transform: uppercase; padding-bottom: .5rem; }
+  td { padding: .28rem 0; border-top: 1px solid var(--line); }
+  td.n { font-family: var(--mono); text-align: right; width: 4.5rem; font-variant-numeric: tabular-nums; }
+  td.g { width: 45%; padding-left: .75rem; padding-right: .75rem; }
+  .mini { height: 5px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+  .mini > i { display: block; height: 100%; }
+
+  .err { color: var(--ai); font-size: .85rem; margin-top: .6rem; min-height: 1.2em; }
+  .note { font-size: .8rem; color: var(--ink-dim); margin-top: .9rem; line-height: 1.5; }
+  .cfg { margin-top: 1rem; }
+  .cfg input {
+    width: 100%; font: .78rem var(--mono); color: var(--ink); background: var(--panel-2);
+    border: 1px solid var(--line); border-radius: 6px; padding: .45rem .6rem; margin-top: .35rem;
+  }
+  footer { margin-top: 2rem; font-size: .78rem; color: var(--ink-dim); text-align: center; }
+  .spin { display: inline-block; width: .8em; height: .8em; border: 2px solid var(--line);
+          border-top-color: var(--accent); border-radius: 50%; animation: r .7s linear infinite; }
+  @keyframes r { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Real or Generated</h1>
+  <p class="sub">Upload an image for a calibrated estimate &mdash; then check whether that estimate survives the compression, blur, resizing and noise every image picks up in circulation.</p>
+</header>
+
+<div class="grid">
+  <div class="panel">
+    <div id="drop" tabindex="0" role="button" aria-label="Choose an image to analyse">
+      <div id="dropText">Choose an image, or drop one here</div>
+      <img id="preview" alt="Selected image preview" hidden>
+    </div>
+    <div class="hint">JPEG &middot; PNG &middot; WebP &mdash; up to 25 MB. Scored in memory, not stored.</div>
+    <input id="file" type="file" accept="image/*" hidden>
+    <div class="err" id="err" role="alert"></div>
+  </div>
+
+  <div class="panel">
+    <div class="verdict">
+      <div class="p" id="prob">&mdash;</div>
+      <div class="label">probability AI-generated</div>
+    </div>
+    <div class="bar"><i id="bar"></i></div>
+    <div class="meta" id="meta"></div>
+    <div style="margin-top:1rem">
+      <button id="robustBtn" class="primary" disabled>Test robustness &nbsp;&middot;&nbsp; 15 conditions</button>
+    </div>
+    <p class="note">The competition scores <strong>half</strong> on clean images and <strong>half</strong> on degraded ones. A detector that only works on pristine uploads solves half the problem.</p>
+  </div>
+</div>
+
+<div class="panel" id="robustPanel" style="margin-top:1rem" hidden>
+  <h2>Confidence under the evaluation grid</h2>
+  <table>
+    <thead><tr><th>Condition</th><th class="g"></th><th style="text-align:right">P(AI)</th></tr></thead>
+    <tbody id="robustRows"></tbody>
+  </table>
+  <p class="note" id="spreadNote"></p>
+</div>
+
+<div class="panel cfg">
+  <h2>Inference endpoint</h2>
+  <input id="api" placeholder="https://your-space.hf.space  (blank = same origin)" aria-label="Inference endpoint URL">
+  <p class="note" id="health"></p>
+</div>
+
+<footer>TikTok TechJam 2026 &middot; Problem Statement 5 &mdash; returns a calibrated probability, not a verdict.</footer>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const drop = $("drop"), fileInput = $("file"), api = $("api");
+let currentFile = null;
+
+try { api.value = localStorage.getItem("apiBase") || ""; } catch (e) { /* private mode */ }
+api.addEventListener("change", () => {
+  try { localStorage.setItem("apiBase", api.value.trim()); } catch (e) {}
+  checkHealth();
+});
+
+const base = () => api.value.trim().replace(/\/$/, "");
+const setError = (msg) => { $("err").textContent = msg || ""; };
+
+async function checkHealth() {
+  try {
+    const r = await fetch(base() + "/health");
+    const d = await r.json();
+    $("health").textContent = d.ok
+      ? `${d.model_type} · ${(d.parameters / 1e6).toFixed(1)}M params · ${d.device} · threshold ${d.threshold}`
+      : d.error;
+  } catch { $("health").textContent = "Endpoint unreachable — set the URL above."; }
+}
+
+drop.addEventListener("click", () => fileInput.click());
+drop.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
+});
+drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", (e) => {
+  e.preventDefault(); drop.classList.remove("over");
+  if (e.dataTransfer.files[0]) handle(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener("change", () => { if (fileInput.files[0]) handle(fileInput.files[0]); });
+
+function handle(file) {
+  if (!file.type.startsWith("image/")) return setError("That file is not an image.");
+  currentFile = file;
+  setError("");
+  $("preview").src = URL.createObjectURL(file);
+  $("preview").hidden = false;
+  $("dropText").hidden = true;
+  drop.classList.add("has");
+  $("robustPanel").hidden = true;
+  predict();
+}
+
+function render(p) {
+  const pct = (p * 100).toFixed(1);
+  const el = $("prob");
+  el.textContent = pct + "%";
+  el.className = "p " + (p >= 0.5 ? "ai" : "real");
+  $("bar").style.width = pct + "%";
+  $("bar").style.background = p >= 0.5 ? "var(--ai)" : "var(--real-ok)";
+}
+
+async function predict() {
+  $("prob").innerHTML = '<span class="spin"></span>';
+  $("meta").textContent = "";
+  $("robustBtn").disabled = true;
+  const body = new FormData();
+  body.append("file", currentFile);
+  try {
+    const r = await fetch(base() + "/predict", { method: "POST", body });
+    if (!r.ok) throw new Error(((await r.json().catch(() => ({}))).detail) || r.statusText);
+    const d = await r.json();
+    render(d.p_ai);
+    $("meta").textContent = `${d.width}×${d.height} · decision threshold ${d.threshold}`;
+    $("robustBtn").disabled = false;
+  } catch (e) {
+    $("prob").textContent = "—";
+    setError(String(e.message || e));
+  }
+}
+
+$("robustBtn").addEventListener("click", async () => {
+  const btn = $("robustBtn");
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span> scoring 15 conditions…';
+  const body = new FormData();
+  body.append("file", currentFile);
+  try {
+    const r = await fetch(base() + "/predict/robust", { method: "POST", body });
+    if (!r.ok) throw new Error(((await r.json().catch(() => ({}))).detail) || r.statusText);
+    const d = await r.json();
+    $("robustRows").innerHTML = d.conditions.map((c) => {
+      const pct = (c.p_ai * 100).toFixed(1);
+      const col = c.p_ai >= 0.5 ? "var(--ai)" : "var(--real-ok)";
+      return `<tr><td>${c.condition}</td>
+        <td class="g"><div class="mini"><i style="width:${pct}%;background:${col}"></i></div></td>
+        <td class="n">${pct}%</td></tr>`;
+    }).join("");
+    $("spreadNote").textContent =
+      `Spread across the 14 degraded conditions: ${(d.spread * 100).toFixed(1)} percentage points. `
+      + `Smaller is better — it means the verdict does not depend on how the image was compressed or resized on its way here.`;
+    $("robustPanel").hidden = false;
+  } catch (e) {
+    setError(String(e.message || e));
+  }
+  btn.disabled = false;
+  btn.textContent = "Test robustness · 15 conditions";
+});
+
+checkHealth();
+</script>
+</body>
+</html>

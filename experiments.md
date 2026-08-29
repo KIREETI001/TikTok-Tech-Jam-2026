@@ -1077,6 +1077,34 @@ CIFAKE's own held-out split -- same resolution, same single generator --
 so it measured in-distribution fit rather than detection ability. 0.8131
 is the first figure measured the way the competition will measure us.
 
+> **Correction (post-merge).** ziyangchua02's `build_matched_eval.py`
+> found the organisers' composition, as fetched, has a resolution
+> shortcut: WildFake's generated images ship at fixed sizes
+> (ADM/DDIM/DDPM/VQDM 256x256; DALLE larger) while COCO reals are
+> photographic resolution, and a classifier using pixel count alone
+> scores AUC **1.0000** on the raw set. Rebuilt locally as
+> `scripts/build_matched_eval_local.py` (adapted to this device's own
+> WildFake cache rather than the teammate's machine-local source
+> folders) -- confirmed size-only AUC **1.0000 -> 0.5000** after centre-
+> cropping both classes to the same native-pixel side (200px), never
+> resizing. Re-scoring `mixed_v2` on the matched set:
+>
+> | | Raw (above) | Matched |
+> |---|---|---|
+> | AUC_clean | 0.8495 | **0.7442** |
+> | AUC_robust (flat) | 0.7767 | **0.6573** |
+> | Final (flat) | 0.8131 | **0.7007** |
+> | Final (grouped) | 0.8192 | **0.7126** |
+>
+> A meaningful part of the 0.8131 headline was the shortcut leaking
+> through -- notable since our pipeline resizes every image to a fixed
+> canvas before the model sees it, so this was not a raw pixel-count
+> read but a correlated cue surviving that resize (plausibly the
+> different blur/degradation characteristics a 256px image vs a
+> photographic one picks up after being resized to the same target).
+> **0.7007/0.7126 is the true baseline iteration 5 needs to beat**, not
+> 0.8131.
+
 ## 12. Rebalancing toward real resolution (`runs/highres_v1`, `v2`)
 
 **Status: superseded, not completed.** `v1` (100 SID_Set shards) hit

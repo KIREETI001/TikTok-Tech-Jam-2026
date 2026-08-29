@@ -3,6 +3,8 @@ torchvision==0.28.0
 timm==1.0.15
 huggingface-hub==1.28.0
 pyarrow==25.0.1
+httpx==0.28.1  # scripts/evaluate_wildfake.py: HTTP range-reads from ModelScope, not HF Hub
+scikit-learn==1.9.0  # scripts/shortcut_probe.py only (diagnostic, not needed to train or infer)
 safetensors==0.8.0
 numpy==2.4.6
 Pillow==12.3.0

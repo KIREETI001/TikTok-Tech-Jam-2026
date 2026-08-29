@@ -61,6 +61,23 @@ def _threshold(metadata: Mapping[str, Any], override: float | None) -> float:
 
 
 def _probabilities(model: nn.Module, images: torch.Tensor) -> torch.Tensor:
+    """One P(AI) per image.
+
+    Accepts either (B, C, H, W) -- one crop per image -- or (B, N, C, H, W)
+    from the multi-crop eval transform, in which case the N crops are scored
+    independently and their *probabilities* averaged.
+
+    Averaging probabilities rather than logits is deliberate: the mean of
+    sigmoids is not the sigmoid of the mean, and averaging in logit space
+    lets one extreme-scoring crop dominate the other four. A crop that lands
+    on a flat patch of sky should not be able to veto four that saw detail.
+    """
+
+    crops_per_image = 1
+    if images.ndim == 5:
+        batch, crops_per_image = images.shape[0], images.shape[1]
+        images = images.flatten(0, 1)
+
     logits = model(images)
     if logits.ndim == 2 and logits.shape[1] == 1:
         logits = logits[:, 0]
@@ -69,7 +86,11 @@ def _probabilities(model: nn.Module, images: torch.Tensor) -> torch.Tensor:
             "Detector must return one logit per image; "
             f"received shape {tuple(logits.shape)}."
         )
-    return torch.sigmoid(logits)
+
+    probabilities = torch.sigmoid(logits)
+    if crops_per_image > 1:
+        probabilities = probabilities.view(batch, crops_per_image).mean(dim=1)
+    return probabilities
 
 
 def _roc_auc(labels: Sequence[int], scores: Sequence[float]) -> float | None:
@@ -199,12 +220,17 @@ def evaluate(
     threshold: float | None = None,
     *,
     records: Sequence[ImageRecord] | None = None,
+    n_crops: int = 1,
 ) -> dict[str, object]:
     """Evaluate a checkpoint on clean images and all 14 brief transformations.
 
     Pass ``records`` to evaluate an already-created validation split. When it is
     supplied, only those records are used, even if ``data_root`` is also set.
     Otherwise ``data_root`` must contain labeled ``real/`` and ``ai/`` folders.
+
+    ``n_crops=5`` averages each image's score over five crops instead of
+    scoring one centre crop (see transforms._multi_crop_tail). It is
+    inference-only, so it applies to checkpoints already trained.
     """
 
     _validate_loader_options(batch_size, num_workers)
@@ -228,7 +254,7 @@ def evaluate(
     for condition in EVALUATION_CONDITIONS:
         dataset = ImageDataset(
             selected_records,
-            transform=build_eval_transform(condition),
+            transform=build_eval_transform(condition, n_crops=n_crops),
             return_path=True,
         )
         loader = DataLoader(

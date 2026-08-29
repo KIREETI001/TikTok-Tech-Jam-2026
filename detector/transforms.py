@@ -7,6 +7,7 @@ from io import BytesIO
 from typing import Final
 
 import numpy as np
+import torch
 from PIL import Image, ImageEnhance, ImageFilter
 from torchvision import transforms as T
 from torchvision.transforms import InterpolationMode
@@ -121,13 +122,53 @@ def _native_tail() -> list:
     ]
 
 
-def build_eval_transform(condition: str = "clean", *, seed: int = 0) -> T.Compose:
-    """Build native preprocessing preceded by one fixed evaluation condition."""
+def _multi_crop_tail() -> list:
+    """Five 224 crops (centre + four corners) of the 256-resized image,
+    returned stacked as (5, C, H, W) for score averaging at evaluation time.
+
+    Ported from ziyangchua02/model_training's ``prepare_crops``, whose
+    rationale is that a single 224px window onto a large image sees a small
+    fraction of it -- so one crop's score is a high-variance sample of what
+    the model thinks about the whole image.
+
+    Note the difference from their version: theirs crops at *native*
+    resolution, because their corpus is stored that way. Ours still resizes
+    the short edge to 256 first, exactly as ``_native_tail`` does, so the
+    five crops overlap heavily and this buys less than it does for them.
+    That is deliberate -- cropping at native resolution here would show the
+    model a different input distribution than it was trained on, and their
+    own row 0b measured that train/inference mismatch costing 0.069 AUC.
+    Native-resolution crops only become correct once training matches.
+    """
+
+    return [
+        T.Resize(256, interpolation=InterpolationMode.BILINEAR),
+        T.FiveCrop(224),
+        T.Lambda(
+            lambda crops: torch.stack(
+                [T.Normalize(IMAGENET_MEAN, IMAGENET_STD)(T.ToTensor()(crop)) for crop in crops]
+            )
+        ),
+    ]
+
+
+def build_eval_transform(
+    condition: str = "clean", *, seed: int = 0, n_crops: int = 1
+) -> T.Compose:
+    """Build native preprocessing preceded by one fixed evaluation condition.
+
+    ``n_crops=5`` switches from a single centre crop to five crops stacked on
+    a leading dimension; the caller averages the per-crop scores (see
+    detector.evaluation._probabilities).
+    """
 
     if condition not in EVALUATION_CONDITIONS:
         choices = ", ".join(EVALUATION_CONDITIONS)
         raise ValueError(f"Unknown evaluation condition {condition!r}; choose from {choices}")
-    return T.Compose([_ApplyCondition(condition, seed), *_native_tail()])
+    if n_crops not in (1, 5):
+        raise ValueError(f"n_crops must be 1 or 5, got {n_crops}.")
+    tail = _native_tail() if n_crops == 1 else _multi_crop_tail()
+    return T.Compose([_ApplyCondition(condition, seed), *tail])
 
 
 class _RandomRobustnessAugment:

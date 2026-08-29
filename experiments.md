@@ -523,31 +523,43 @@ CIFAKE's own held-out split -- same resolution, same single generator --
 so it measured in-distribution fit rather than detection ability. 0.8131
 is the first figure measured the way the competition will measure us.
 
-## 11. Rebalancing toward real resolution (`runs/highres_v1`)
+## 11. Rebalancing toward real resolution (`runs/highres_v1`, `v2`)
 
-**Status: running.** SID_Set shards 30 -> 100 (~67.5k train images) and a
-new `local_max_train_images` cap holding CIFAKE to 20k, class-balanced so
-the cap moves the source ratio without also moving the class prior.
-High-resolution images go from ~20% to **77%** of training at similar
-total volume (87,513 train / 21,880 val).
+**Status: superseded, not completed.** `v1` (100 SID_Set shards) hit
+`lru_cache(maxsize=32)` thrashing -- 5.5h at 0% GPU, 432 re-fetches for
+100 shards, zero epochs finished -- and was killed. `v2` fixed this by
+reverting to 30 shards and using `local_max_train_images` (new: caps the
+32x32 CIFAKE source, class-balanced, applied to both train and
+validation at the same ratio) to reach the same ~77% high-resolution mix
+at a quarter of the data. `v2` trained cleanly for 3 epochs (val F1
+0.8738 -> 0.8917 -> 0.9013, monotonically improving, no thrash) before
+being stopped partway through epoch 4.
 
-The cap applies to validation at the same ratio -- caught after the first
-launch, where capping only training left validation 54% CIFAKE while
-training was 23%. Validation F1 selects the checkpoint, so that run would
-have optimised for the 32px distribution the cap exists to move away
-from: exactly the selection-metric failure ziyangchua02 documented. Both
-splits now sit at 77.1% high-resolution.
+**Why stopped rather than finished**: access to a teammate's parallel
+effort (`ziyangchua02/model_training`, now merged as a collaborator)
+surfaced a checkpoint already at organiser Final Score **0.9126** --
+built on Community-Forensics-Small (multi-generator, content-matched)
+rather than CIFAKE+SID_Set, with SAFE-style crop-from-native
+augmentation and a DWT frequency-patch branch already implemented but
+switched off. `highres_v2`'s ceiling on this data mix could not
+plausibly reach that with two epochs remaining, so continuing it was
+pure sunk cost. `local_max_train_images` and the cache-thrash fix carry
+forward regardless -- both are merged onto the shared branch.
+
+See `EXECUTION_PLAN.md` (post-merge) for what runs next: iteration 5,
+warm-started from the teammate's checkpoint, targeting the one measured
+weakness that survives it -- pixel-space diffusion (ADM 0.623, DDPM
+0.735) -- via the already-implemented crop-from-native + SAFE augment +
+wavelet branch, plus a small amount of GenImage ADM/GLIDE training data.
 
 ## Not yet attempted
 
-- **Full-scale hybrid training run** (section 8 built and benchmark-
-  validated the mechanism; not yet run at scale): fine-tune
-  `HybridDetector`'s frequency branch on the complete PS5+SID_Set mixed
-  pool (`model_type: hybrid`, `vit_checkpoint: runs/mixed_v2/best.pt`,
-  multiple epochs) to properly test whether it closes any more of the
-  cross-dataset gap -- the section-8 quick check only saw 1,920 PS5-only
-  images, no new diversity, so it couldn't test this. Needs the same
-  multi-hour commitment as sections 5-7's full runs.
+- ~~Full-scale hybrid training run~~ -- superseded. Two independent
+  full-epoch measurements of the global-FFT hybrid (section 8, and
+  ziyangchua02's own FFT branch at 0.457 AUC on unseen generators, below
+  chance) are enough; the deck's own slide 8 wants frequency *patches*,
+  not a global spectrum, which is a different branch (DWT/wavelet, see
+  section 11) already implemented on the merged branch.
 - **Lighter fine-tune depth** (Ojha et al.-motivated, still not tried):
   freeze the last transformer block too (train only the head + norm),
   trading some clean accuracy for potentially better cross-generator

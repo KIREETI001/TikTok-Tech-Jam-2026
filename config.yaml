@@ -8,13 +8,28 @@ data_source: mixed
 # every one 32x32 from a single generator (SD 1.4) -- while every evaluation
 # set is 1024px from many generators. Uncapped, that made training ~80%
 # 7x-upscaled thumbnails from one generator. See experiments.md section 10.
-sid_set_train_shards: 100
+# Stays at 30. A first attempt used 100 and spent 5.5 hours at 0% GPU:
+# _load_shard_images is lru_cache(maxsize=32), so 30 shards stay resident for
+# the whole run ("first access only", as its docstring says) but 100 thrash --
+# training shuffles across all of them, every access evicts a shard needed
+# moments later, and the run re-fetched shards 432 times without finishing a
+# single epoch. Raising maxsize is not the fix either: at ~170MB of image
+# bytes per shard, 100 resident shards is ~17GB of RAM.
+#
+# The deeper reason to stay at 30: shard count buys *volume*, not generator
+# diversity -- SID_Set's generator set is identical whether you read 30 shards
+# or 100. The ratio against CIFAKE is what mattered, and capping CIFAKE
+# achieves it far more cheaply.
+sid_set_train_shards: 30
 sid_set_val_shards: 1
 
 # Cap the 32x32 CIFAKE contribution so the pool is majority real-resolution.
-# 20k local + ~83k SID_Set puts high-resolution images at ~80% of training,
-# roughly inverting the previous ratio at similar total volume.
-local_max_train_images: 20000
+# 6k local against ~20k SID_Set puts high-resolution images at ~77% of
+# training -- the same inversion the 100-shard attempt was after, at a quarter
+# of the data and with no re-downloading. Also ~3x faster per epoch than the
+# 99k-image runs, which matters more than volume here: SSAFE measured 10k
+# curated images beating a 4M-image baseline.
+local_max_train_images: 6000
 dragon_config: Regular
 # 0 for now: DRAGON has hit a persistent (not transient) DNS resolution
 # failure against the HF Hub in this environment across multiple full
@@ -44,7 +59,7 @@ model_type: vit
 # vit_checkpoint: runs/mixed_v2/best.pt
 
 data_dir: ../Data/train
-output_dir: runs/highres_v1
+output_dir: runs/highres_v2
 
 seed: 2026
 validation_fraction: 0.20
@@ -53,6 +68,13 @@ batch_size: 16
 epochs: 5
 learning_rate: 0.00001
 weight_decay: 0.01
+# Must stay 0 while any streamed source is in the mix, for a reason beyond
+# the earlier throughput benchmark: _load_shard_images caches shard bytes in
+# process memory, so every DataLoader worker on Windows (spawn, not fork)
+# would build its own cache -- N workers means N copies of the downloads and
+# N copies of the RAM. The 1024px decode cost genuinely would benefit from
+# workers, but only once the data is local; see the materialize-sid-set
+# command if that trade ever becomes worth making.
 num_workers: 0
 
 # Chance that at least one of {resize-roundtrip, blur, noise, JPEG

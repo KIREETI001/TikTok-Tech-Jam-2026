@@ -40,8 +40,8 @@ import argparse
 import io
 import json
 import random
-import sys
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -50,12 +50,64 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.inspection import permutation_importance
 from sklearn.model_selection import cross_val_score
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from detector.data import ImageRecord, load_labeled_root  # noqa: E402
-
 SEED = 2026
 CROP = 224
+
+# Deliberately NOT importing detector.data, which would pull in torch.
+#
+# The first version of this script did, for ImageRecord and
+# load_labeled_root, and it took the machine down: sklearn's joblib workers
+# (n_jobs=5 for cross-validation, 4 for permutation importance) each spawn a
+# subprocess that re-imports the parent module, so every worker loaded ~2GB
+# of CUDA DLLs to use a dataclass and a directory walk. With a training run
+# already holding the GPU, that exhausted the Windows paging file
+# (WinError 1455) and killed unrelated jobs.
+#
+# A diagnostic that reads images and fits a small tree model has no business
+# depending on the training stack, so it now carries its own 15-line loader
+# and runs single-process. Both probes fit in seconds on ~1.5k rows x 10
+# features; n_jobs bought nothing.
+IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"})
+REAL_FOLDERS = frozenset({"real", "authentic", "non_aigc"})
+FAKE_FOLDERS = frozenset({"fake", "ai", "aigc"})
+
+
+@dataclass(frozen=True)
+class ImageRecord:
+    """Local stand-in for detector.data.ImageRecord: path and label only.
+
+    No checksum -- this probe does not deduplicate, because it measures the
+    corpus as the model sees it, duplicates included.
+    """
+
+    path: Path
+    label: int
+
+
+def load_labeled_root(root: str | Path) -> list[ImageRecord]:
+    """Find real/ and fake/ (or ai/) subfolders and label their images."""
+    root_path = Path(root)
+    if not root_path.is_dir():
+        raise NotADirectoryError(f"Not a directory: {root_path}")
+
+    records: list[ImageRecord] = []
+    for child in sorted(root_path.iterdir()):
+        if not child.is_dir():
+            continue
+        name = child.name.strip().lower().replace("-", "_").replace(" ", "_")
+        if name in REAL_FOLDERS:
+            label = 0
+        elif name in FAKE_FOLDERS:
+            label = 1
+        else:
+            continue
+        for path in sorted(child.rglob("*")):
+            if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS:
+                records.append(ImageRecord(path=path, label=label))
+
+    if not records:
+        raise ValueError(f"No labeled images under {root_path} (need real/ and fake/ subfolders).")
+    return records
 
 
 def balance(records: list[ImageRecord], seed: int = SEED) -> list[ImageRecord]:
@@ -163,12 +215,13 @@ def pixel_features(records: list[ImageRecord]) -> tuple[np.ndarray, list[str]]:
 def run_probe(
     name: str, X: np.ndarray, y: np.ndarray, feature_names: list[str], folds: int = 5
 ) -> dict:
+    # n_jobs=1 throughout: see the module-level note on WinError 1455.
     model = HistGradientBoostingClassifier(max_iter=200, random_state=SEED)
-    scores = cross_val_score(model, X, y, cv=folds, scoring="accuracy", n_jobs=min(folds, 8))
+    scores = cross_val_score(model, X, y, cv=folds, scoring="accuracy", n_jobs=1)
     accuracy = scores.mean() * 100
 
     model.fit(X, y)
-    importance = permutation_importance(model, X, y, n_repeats=5, random_state=SEED, n_jobs=4)
+    importance = permutation_importance(model, X, y, n_repeats=5, random_state=SEED, n_jobs=1)
     ranked = sorted(
         zip(feature_names, importance.importances_mean), key=lambda kv: kv[1], reverse=True
     )

@@ -19,3 +19,7 @@ predictions*.csv
 .env
 .env.*
 *.tmp
+
+# transient feature caches for the fusion-head sprint
+scratchpad/feats/
+*.npz

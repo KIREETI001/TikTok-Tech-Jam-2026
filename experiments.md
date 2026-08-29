@@ -417,6 +417,560 @@ same multi-hour commitment as sections 5-7's full runs.
 `config.yaml` stays on `model_type: vit` (the proven section-6 checkpoint)
 pending that full-scale test.
 
+## 9. Environment pivot -- new laptop, Intel Arc iGPU, no local dataset
+
+All of sections 0-8 ran on a machine with an RTX 3050 and the full
+`../Data/` tree (99,080 PS5 images + a held-out `Data/test`). Work moved to
+a different laptop (2026-08-29) with neither:
+
+- **GPU: Intel Arc integrated** (Meteor Lake, device 0x7D55, ~16 GB shared,
+  128 EUs). No CUDA. Added an **XPU backend** path throughout
+  (`detector/model.py` `resolve_device` now CUDA -> XPU -> CPU via
+  `xpu_available()`; `accelerator_pin_memory()`; XPU seeding; `--device xpu`;
+  smoke's GPU-fallback guard generalized to CUDA *or* XPU).
+  - **`torch==2.13.0+xpu` deadlocks** on the first oneDNN GEMM with this
+    laptop's GPU driver (`32.0.101.6314`, Nov 2024). Not slow -- a true
+    hang (process idle, 0 CPU). **`torch==2.6.0+xpu` works** (GEMM ~2 s).
+    Training runs from a `torch 2.6.0+xpu` venv; the pinned 2.13 stack needs
+    a driver update (latest 32.0.101.8991, Aug 2026) to be usable here.
+  - Measured ViT-S throughput on the iGPU: **~100-120 img/s** train (bs 8-16),
+    ~90 img/s eval. bf16 `autocast` added to train + validate.
+- **No local dataset.** `../Data/` does not exist. Public data only (user
+  decision): SID_Set streamed from HF and **materialized to local disk**
+  (`pipeline.py materialize-sid-set`), then trained via `data_source: local`
+  -- decoupling the fetch from the loop as section 7 recommended. The real
+  PS5 held-out `Data/test` is gone, so every number below is on SID_Set or
+  another public set, never the organizers' distribution.
+
+### Objective realignment (applies to every iteration below)
+
+The brief scores `0.5*AUC_clean + 0.5*AUC_robust` (ROC-AUC), and the goal
+set for this push is **FPR and FNR both <= 3%**. The training loop was
+selecting the best checkpoint by **F1 at a fixed 0.5 threshold** -- wrong on
+both counts. Changed:
+
+- checkpoint selection is now by validation **ROC-AUC** (`select_metric`,
+  default `roc_auc`; `balanced_max_fpfn` and `f1` also available);
+- after each epoch the loop sweeps thresholds and stores the one minimizing
+  `max(FPR, FNR)` on validation into the checkpoint; `evaluate`/`predict`
+  read it from metadata (`threshold: auto` in config);
+- `loss_pos_weight` exposed for the BCE positive (fake) class -- SID_Set is
+  ~1:2 real:fake; lever for pulling FPR and FNR together;
+- `evaluate` summary now reports worst-case FPR/FNR across all 15 conditions
+  and whether every condition is within the 3% target.
+
+### 9a. Iteration 1 -- baseline on this environment
+
+**Config**: `data_source: local`, 13,504 SID_Set images (shards 0-15,
+materialized at native ~1024px), 85/15 split -> 11,475 train / 2,024 val,
+ViT, 6 epochs, bs 16, lr 1e-5, aug 0.7, `pos_weight` 1.0, `select_metric`
+roc_auc, `num_workers` 0.
+
+**Internal held-out val** (same shards, unseen images), by epoch:
+
+| epoch | val AUC | bal thr | bal FPR | bal FNR |
+|---|---|---|---|---|
+| 1 | 0.885 | 0.67 | 0.199 | 0.206 |
+| 3 | 0.924 | 0.62 | 0.154 | 0.151 |
+| 5 | 0.933 | 0.65 | 0.143 | 0.146 |
+| 6 | **0.934** | 0.68 | 0.146 | 0.144 |
+
+**Findings**:
+- AUC plateaued by epoch 4-5 (0.929 -> 0.934); train loss still falling
+  (0.31 -> 0.28) while val loss flattened -> mild overfit starting, more
+  *data* will help more than more *epochs* on this size.
+- At threshold 0.5: FPR 0.23 / FNR 0.09 -- the model leans "predict fake",
+  exactly the 1:2 real:fake class ratio. The calibrated threshold (~0.66)
+  rebalances it to ~14.5% each, which is the model's real discrimination
+  limit here.
+- **~14 min/epoch, ~14 img/s effective** -- single-process augmentation
+  (heavy: PIL JPEG re-encode + blur + numpy noise + 2 resizes, on 1024px
+  images) leaves the iGPU ~85% idle. Fixed for iteration 2: materialize at
+  448px + `num_workers` 6 + `persistent_workers`; also refactored
+  `evaluate()` to decode each image once instead of 15x.
+- Bug found and fixed: numpy scalars in checkpoint metadata broke
+  `torch.load(weights_only=True)` (PyTorch 2.6 default) -- `save_checkpoint`
+  now coerces metadata to built-in types.
+
+**Gap to target**: 14.5% balanced error on the *easy* in-distribution number
+vs a 3% goal. Reaching 3% needs ~0.99 AUC -- a large jump. Levers for the
+next iterations: (2) 3x more data + class-balanced sampling + cosine LR;
+(3) the semantic+frequency hybrid; (4) more generator diversity (DRAGON /
+GenImage); (5) lighter fine-tune depth per Ojha et al.
+
+### 9b. Iteration 2 -- drop tampered images + recipe/throughput fixes
+
+**The tampered discovery**: SID_Set's `fake` class is ~50% `full_synthetic`
+(fully AI-generated) and ~50% `tampered` (a real photo with a small AI-edited
+region -- localized-manipulation detection, a materially different and harder
+task). Collapsing both to "fake" is what pinned iteration 1 at 0.93 AUC. The
+filenames carry the distinction, so the materialized tree was split into
+real-vs-full_synthetic (`*_fs`) and a tampered-only diagnostic set.
+
+**Config**: `sid_train448_fs` -- SID_Set shards 0-15, 448px, tampered
+dropped -> 8,991 images (4,469 real / 4,522 full_synthetic), 88/12 split ->
+7,912 train / 1,079 val. ViT, 10 epochs, bs 16, **lr 2e-5 cosine + 10%
+warmup**, aug 0.7, **class-balanced sampling**, `num_workers` 6 +
+`persistent_workers`, `select_metric` roc_auc, `threshold: auto`.
+
+**Throughput**: 448px + 6 workers -> **~3 min/epoch** (was ~14).
+
+**Internal held-out split** (robustness matrix): Final Score **0.9993**
+(clean AUC 0.9997 / robust 0.9989). Clean FPR 1.1% / FNR 1.1%. **13/15
+conditions within the 3% FPR&FNR bar.**
+
+**Held-out `sid_val448_fs`** (SID_Set's own validation split, unseen images):
+
+| | value |
+|---|---|
+| Final Score (0.5 AUC_clean + 0.5 AUC_robust) | **0.9988** |
+| clean: FPR / FNR | **0.50% / 1.21%** |
+| conditions within 3% FPR&FNR | **11/15** |
+| worst FNR | 6.8% @ noise_sigma0.10 |
+| worst FPR | 1.5% @ resize_0.25x |
+| worst per-condition AUC | 0.9964 @ noise_sigma0.10 |
+
+All 4 misses are FNR (missed AI images) under aggressive corruption --
+`jpeg_q30` 4.7%, `noise_sigma` 0.02/0.05/0.10 at 3.2/3.6/6.8%. Per-condition
+AUC never drops below 0.996, so discrimination is intact; the calibrated
+(clean-val) threshold is just slightly too high once heavy noise pulls the
+fake scores down.
+
+**vs iteration 1** (held-out): Final Score 0.9364 -> 0.9988; clean error
+~13% -> <1.3%; 0/15 -> 11/15 within 3%.
+
+**Honest caveat**: `sid_val_fs` is SID_Set's *own* validation split -- same
+generators as training, unseen images only. This is in-distribution
+generalization, not cross-generator. The competition bar (unseen
+generators) still needs a genuinely different source -- DRAGON / GenImage --
+which iteration 3 adds as the real scoreboard.
+
+**Tampered diagnostic** (`sid_val448_tampered`, 1192 real / 1179 tampered):
+clean FNR **96.9%**, clean AUC 0.657. The fs-only model has essentially zero
+ability to flag locally-edited images -- expected, they are mostly authentic
+pixels. Confirms tampered detection is a separate task. Decision: the PS5
+brief is "AI-Generated Image Detection" and its robust-scoring axis is image
+*degradations* (which the 15-condition matrix covers), not localized
+manipulation -- so the main model stays fs-focused and the tampered gap is a
+documented limitation. Revisit with a frequency branch / small tampered
+fraction if time allows.
+
+### 9c. Iteration 2's cross-generator gap -- DRAGON (25 unseen generators)
+
+Materialized DRAGON (`lesc-unifi/dragon`, works fine from this machine --
+the DNS failures in section 7 were the *other* machine): 4,100 fakes, 25
+modern diffusion generators x 164, none overlapping SID_Set. Paired with
+1,192 SID_Set-val reals. iter2's checkpoint (threshold 0.73):
+
+| | value |
+|---|---|
+| clean ROC-AUC | **0.9914** |
+| clean FPR / FNR | 0.42% / **18.8%** |
+| Final Score | 0.9879 |
+
+Score distributions (clean): SID_Set fakes mean p=0.99, DRAGON fakes mean
+p=0.84 -- the model still ranks DRAGON fakes above real (hence high AUC),
+but their scores sit lower, so the SID-calibrated threshold misses many.
+
+**Threshold sweep across SID_fs + DRAGON**: even at threshold 0.05, DRAGON
+FNR only falls to 7.1% (SID FPR then 2.9%). So it is *not* purely
+calibration -- there is a ~7% hard tail of DRAGON fakes the model is
+confident are real.
+
+**Per-generator FNR** (threshold 0.73): worst = Flash_SD3 59%, IF (DeepFloyd,
+pixel-space diffusion) 55%, LCM_SDXL 54%, JuggernautXL 45%, Flash_SDXL 34%,
+Flash_SD 31%. Best = Hyper_SD 0%, PixArt_alpha/sigma 2%, Mobius 2%,
+SD_Cascade 3%, Kolors 4%. Pattern: distilled/fast samplers (Flash_*, LCM),
+pixel-space diffusion (IF), and heavily photoreal-tuned SDXL (JuggernautXL)
+have artifact signatures unlike SID_Set's generators.
+
+### 9d. Iteration 3 -- generator diversity + noise robustness (in progress)
+
+**Data**: `iter3_train` = SID_Set shards 0-29 full_synthetic (8,409 real /
+8,415 fake) + DRAGON **17 of 25 generators** (2,788 fakes). Held out for the
+cross-generator scoreboard (`dragon_holdout_eval`, 1,192 real / 1,312 fake):
+Flux_1, IF, JuggernautXL, Kolors, PixArt_Sigma, SDXL_Turbo, SD_3, SD_Cascade.
+
+**Changes**: `train_augment_probability` 0.7 -> 0.8; `_RandomRobustnessAugment`
+fires the noise op at 1.5x the other ops' probability and up to sigma 0.13
+(matrix max 0.10); training's `_validate` now calibrates the stored
+operating threshold on clean **+ noise-corrupted** val scores, not clean
+only. 12 epochs, otherwise iter2's recipe.
+
+### 9e. Cross-checking against ziyangchua02/model_training
+
+A parallel pipeline by a teammate (`github.com/ziyangchua02/model_training`,
+ResNet50 + branch-fusion rather than Community Forensics) keeps its own
+experiment log over 8 trained-and-scored changes. Several of its measured
+results bear directly on this project's plan, and two contradict it.
+
+**Their headline**: Final Score 0.9340 (AUC_clean 0.9448, AUC_robust 0.9232)
+on their own unseen-generator holdout; noise is their weakest condition
+(0.8886 mean AUC, 0.8582 at sigma 0.10) -- the same weakness measured here in
+9b/9d.
+
+**Where their gains came from**, over 8 experiments:
+
+| Change | dAUC |
+|---|---|
+| Multi-source content-matched corpus, native-resolution crops | **+0.132** |
+| Frozen CLIP ViT-L/14 branch | **+0.069** |
+| Training generator diversity, 9 -> 17 families | **+0.042** |
+| CutMix | +0.006 |
+| Held-out-generator selection + calibration | 0.000 AUC (but +9.9 deployed) |
+| Dropping the frequency and camera branches | -0.004 |
+
+Two of the three real wins are data, not architecture.
+
+**Contradicts our plan -- the frequency branch is below chance.** Their
+per-branch auxiliary-head AUCs, on unseen generators against a pooled real
+set:
+
+| Branch | AUC seen val | AUC unseen | drop |
+|---|---|---|---|
+| frozen CLIP | 0.983 | **0.897** | -0.086 |
+| fine-tuned ResNet50 (spatial) | 0.987 | 0.784 | -0.203 |
+| camera / noise residual | 0.847 | 0.528 | -0.319 |
+| **frequency (FFT + radial profile)** | 0.722 | **0.457** | -0.265 |
+
+0.457 is *inverted*, not uninformative -- and 0.722 on seen data shows it
+learned something, just the wrong thing: the spectral signatures of the
+training generators. That is the same log-magnitude-FFT-plus-radial-profile
+design as `detector/model.py`'s `FrequencyBranch`, which section 8 built and
+the "Not yet attempted" list still carried as the top pending lever.
+**Removed from the plan on their evidence** rather than spending a
+multi-hour run to rediscover it. Note this also qualifies the brief's own
+"combine semantics + low-level frequency" hint: as a shallow branch trained
+with an auxiliary loss, it does not survive a generator change.
+
+**Confirms our diagnosis -- calibration on seen data is the FNR bug.**
+Their experiment 1 lost 11.4 points of balanced accuracy to a threshold
+fitted on the seen validation split; refitting it on a *withheld generator*
+moved the cutoff 0.49 -> 0.10 and took recall on unseen fakes from 0.252 to
+0.826. That is exactly section 9c's finding here (threshold 0.73 fitted on
+SID_Set giving 18.8% FNR on DRAGON), independently reproduced on a different
+architecture. Their split protocol separates it properly:
+
+| Split | Used for |
+|---|---|
+| train | fitting weights |
+| val | watching for training failures only |
+| genval | withheld generator -- checkpoint selection *and* threshold |
+| calval | a *different* withheld generator -- picks the threshold *rule* |
+| holdout | the reported metric; never an input to any decision |
+
+Our iteration 3 still selects checkpoints on a validation split containing
+the training generators. Their experiment 2 shows why that is not safe: seen
+validation accuracy rose monotonically to 97.1% while AUC on an unseen
+generator peaked at epoch 4 and then fell for four more epochs.
+
+**A caution they record twice**: a change that moves genval but not the
+holdout is unproven -- genval is one generator.
+
+### 9f. The organisers' composition has a resolution shortcut
+
+Their `match_resolution.py` reports that on the organisers' composition as
+shipped, **a classifier using image size alone scores AUC 1.0000** --
+WildFake's authentic images are 200x200 and its generated images 256x256 or
+larger.
+
+Verified independently on the set built here (COCO from the HF mirror,
+WildFake fakes as fetched): real images span 69,120-284,928 pixels while
+ADM/DDIM/DDPM/VQDM are *all exactly* 65,536 (256x256) -- every fake from
+four of the six generators smaller than every real. Same shortcut, opposite
+sign.
+
+Any score on such a set is a mixture of "can it detect generation" and "can
+it read a file header". `build_matched_eval.py` therefore writes a matched
+copy: every image centre-cropped from **native pixels** to the smallest
+common side (200), never resized -- resizing one class and not the other
+swaps a size cue for a resampling cue. It prints size-only AUC before and
+after so the confound is measured rather than assumed. The authentic half is
+also taken from WildFake's own `Images/Real/coco.zip` (COCO 2017 train,
+163,846 images) rather than an HF COCO mirror, so both halves come from the
+distribution the organisers actually pair.
+
+### 9g-results. Iteration 3 -- generator diversity + noise-aware calibration
+
+**Config**: `iter3_train` = SID_Set shards 0-29 full_synthetic (8,409 real /
+8,415 fake) + 17 of DRAGON's 25 generators (2,788 fakes). Held out for the
+cross-generator scoreboard: Flux_1, IF, JuggernautXL, Kolors, PixArt_Sigma,
+SDXL_Turbo, SD_3, SD_Cascade. `train_augment_probability` 0.8; noise op
+fires at 1.5x the other corruptions and up to sigma 0.13; `_validate` now
+calibrates the stored threshold on clean + noise-corrupted val (the value
+landed at 0.10, vs iter2's 0.73). 12 epochs, 448px, otherwise iter2's recipe.
+
+| held-out set | Final Score | clean FPR / FNR | conditions <=3% | vs iter2 |
+|---|---|---|---|---|
+| internal split | 0.9987 | 2.5% / 0.6% | 7/15 | -- |
+| `sid_val448_fs` | 0.9989 | 2.4% / 0.17% | 9/15 | 0.9988 -> ~flat |
+| **DRAGON, 8 unseen generators** | **0.9974** | **2.4% / 1.4%** | **9/15** | clean AUC 0.9914 -> **0.9981**, FNR **18.8% -> 1.4%** |
+| tampered (diagnostic) | 0.648 | 2.4% / 90% | 0/15 | ~chance, as expected |
+
+**Findings**:
+- **The FNR-under-degradation problem from sections 9b/9d is solved on
+  latent-diffusion generators.** Clean FNR is 0.17-1.4% on every real
+  diffusion set. Training on 17 DRAGON generators transferred cleanly to the
+  8 held out -- clean AUC on genuinely-unseen generators went 0.9914 ->
+  0.9981.
+- **The remaining weakness flipped from FNR to FPR** (3-7% under heavy
+  JPEG/noise/resize, worst 6.6% at noise sigma 0.10). This is the safer
+  failure mode and is threshold- and augmentation-tunable rather than a
+  discrimination limit -- per-condition AUC never drops below 0.994.
+- The threshold moved to 0.10, which by section 9c's own logic is "the size
+  of the score shift between seen and unseen generators". The noise-aware
+  calibration overshot slightly (it targets noisy FNR, which was never the
+  problem here); a clean-weighted recalibration would trade a little of the
+  DRAGON headroom back for lower clean FPR.
+- Tampered stays at ~chance (clean FNR 90%). Correct given the deck's
+  image-level-binary-only scope (section 9g); documented as out of scope.
+- **Caveat**: DRAGON's held-out generators are all latent diffusion -- the
+  same architecture family as training. The genuine cross-*architecture*
+  test is WildFake's pixel-space generators (ADM/DDIM/DDPM/Imagen), where
+  iter2 scored 0.742 clean AUC.
+
+**Iteration 3 on the resolution-matched organiser composition (WildFake vs
+COCO, 1200/1200, size-only AUC 0.500):**
+
+| | iter2 | iter3 |
+|---|---|---|
+| Final Score | 0.717 | **0.804** |
+| AUC_clean / AUC_robust | 0.742 / 0.692 | **0.826 / 0.781** |
+
+Per-generator clean AUC, every one improved:
+
+| Generator | iter2 | iter3 | family |
+|---|---|---|---|
+| ADM | 0.537 | **0.645** | pixel-space diffusion |
+| DDPM | 0.632 | **0.752** | pixel-space diffusion |
+| Imagen | 0.663 | **0.804** | pixel-space cascaded |
+| DDIM | 0.781 | **0.859** | pixel-space diffusion |
+| DALLE | 0.923 | 0.946 | discrete / dVAE |
+| VQDM | 0.916 | 0.952 | vector-quantized |
+
+**+0.087 Final Score from generator diversity + calibration alone**, and it
+transferred to *pixel-space diffusion* -- an architecture family with zero
+representation in training (SID_Set and DRAGON are both latent diffusion).
+Direct evidence for the deck's "the biggest lever is what you train on".
+
+Two things confirm the section-9g research diagnosis:
+- **ADM is still 0.645; SAFE reaches 0.82 on ADM.** The ~0.18 gap is what the
+  DWT-band input + crop-not-resize is expected to close -- it is not a
+  missing-data problem alone (SAFE never trained on ADM).
+- **The stored threshold (0.10) is wrong for WildFake**: FPR 11.8% / FNR 40%
+  at the operating point despite clean AUC 0.826. The noise-aware
+  calibration was tuned for an FNR-under-noise problem WildFake does not
+  have. A held-out-generator recalibration (merge-plan Phase 2, no
+  retraining) fixes the operating point.
+
+**Iteration 4 sequence, settled by this result**: (1) recalibrate iter3's
+threshold on held-out generators -- cheap, no training; (2) iteration 4 =
+`CommunityForensics-Small` spine + DWT/SAFE branch + crop-from-native A/B in
+one run, targeting the ADM residual and adding the semantic + frequency-patch
+fusion the deck asks for.
+
+### 9h. Phase A -- held-out-generator threshold calibration (no training)
+
+`detector/calibrate.py`: fit the operating point on a withheld generator
+family, pick the *rule* on a second withheld family. Split DRAGON's 8
+held-out generators into `genval` (Flux_1, JuggernautXL, Kolors, SD_Cascade,
+PixArt_Sigma) and `calval` (IF, SDXL_Turbo, SD_3).
+
+Rule comparison (threshold fit on genval, scored on calval):
+
+| rule | thr | calval balacc | calval max(FPR,FNR) |
+|---|---|---|---|
+| balacc_argmax | 0.50 | 0.969 | 0.051 |
+| balacc_plateau | 0.45 | 0.971 | 0.047 |
+| equal_error | 0.42 | 0.972 | **0.045** |
+| minmax_fpfn | 0.42 | 0.972 | **0.045** |
+
+Applied `minmax_fpfn` (threshold **0.42**, was 0.10) to `runs/iter3/best.pt`.
+At 0.42, on generators never seen in training:
+
+| | FPR | FNR |
+|---|---|---|
+| genval (5 unseen latent-diffusion generators) | 1.2% | 1.2% |
+| calval (3 unseen, incl. DeepFloyd IF) | 1.2% | 4.5% |
+| sid_val_fs | 1.2% | 0.9% |
+
+**iter3 is within ~1-4% FPR/FNR on unseen latent-diffusion generators** at a
+threshold that was calibrated without touching any of them. The Final Score
+is unchanged (AUC is threshold-free). WildFake's pixel-space families stay
+discrimination-limited (AUC 0.826) -- no threshold rescues them; that is
+Phase C's job.
+
+The noise-aware calibration from section 9g-results *over-corrected*: it
+targets noisy FNR, which iteration 3 does not have. Held-out-generator
+calibration is the better-evidenced mechanism and is now the standing rule
+(`detector/calibrate.py`, applied after every training run).
+
+### 9i. Phase A -- shortcut probes (no training)
+
+`detector/shortcut_probe.py`: gradient-boosted-tree probes on class-balanced
+data (chance 50%), reading only things that are not generation artifacts.
+`metadata` = original geometry + JPEG size (does not reach the model -- our
+sets are re-encoded). `pixel` = channel stats / saturation / edge density /
+re-encode size of the 224 crop. `dct_hf` = mean log-magnitude of the DCT
+outside a central radius (the DDA "JPEG-history frequency bias").
+
+| pool | metadata | pixel | dct_hf |
+|---|---|---|---|
+| `iter4_train` (SID fs + 17 DRAGON + CF-Small) | 97.9% | **60.4%** | **52.5%** |
+| `sid_val_fs` alone | 97.4% | **75.0%** | 59.1% |
+| `dragon_unseen` | 97.4% | 69.2% | 54.9% |
+| `organiser_matched` | **51.6%** | 66.6% | 61.7% |
+
+**Findings**:
+- **The multi-source corpus removes the shortcut.** SID_Set alone has a
+  strong pixel-statistics cue (75% -- generated images are genuinely
+  smoother / less textured than photos), and iteration 2/3 partly learned
+  it. Mixing in Community-Forensics-Small drops `iter4_train`'s pixel probe
+  to 60.4% and its `dct_hf` to chance (52.5%). Independently reproduces the
+  teammate's result (9-family 70.8% -> 17-family 64.6%).
+- **The resolution-matching worked**: `organiser_matched` metadata probe is
+  51.6% (was AUC 1.0 on the as-shipped set, section 9f).
+- **Gate result for the DDA frequency-alignment augmentation (Phase D)**:
+  `iter4_train`'s `dct_hf` is already at chance, so the DDA aug is
+  **downgraded to optional**. The residual `pixel`/`dct_hf` on the eval sets
+  (66% / 62%) is partly legitimate signal -- older generators really are
+  smoother -- not only a dataset accident. Phase D focuses on
+  supervised-contrastive loss + windowed augmentation instead.
+
+### 9j. Phase B -- iteration 4: Community-Forensics-Small (in progress)
+
+`iter4_train` = `iter3_train` (SID full_synthetic + 17 DRAGON generators,
+19.6k) + Community-Forensics-Small (17,914 real / 23,939 fake after a
+perceptual-hash dedup that dropped 38 CF reals matching the WildFake COCO
+eval set). **61,465 images total.** Each epoch draws a fresh balanced 24k
+from the pool (`samples_per_epoch`), 10 epochs, `num_workers` 8, otherwise
+iteration 3's recipe. `model_type: vit` -- a data-only change; the DWT branch
+is iteration 5. DDIM/Imagen deliberately not added so the organiser score
+keeps genuinely-unseen pixel-space families.
+
+**Process note**: `run_iteration.sh` was killed mid-eval by an over-eager
+zombie-process cleanup; `dragon_holdout` and `tampered` were re-run directly
+against `runs/iter3/best.pt`. No effect on results.
+
+**Results (DONE 2026-08-29).** 10 epochs, ~7 min/epoch, best internal
+roc_auc 0.9993 (ep10). Threshold auto-calibrated on withheld DRAGON
+generators -> `minmax_fpfn` 0.385 (genval FPR 2.0/FNR 2.0, calval FPR 2.0/
+FNR 3.1 -- all 5 rules land 2.8-3.9% worst-case).
+
+| eval set | Final Score | clean AUC | robust AUC | clean FPR | clean FNR | conds <=3% |
+|---|---|---|---|---|---|---|
+| internal held-out | -- | -- | -- | acc 0.988 | robust acc 0.979 | -- |
+| sid_val_fs | ~0.997 | 0.9985 | 0.9963 | 0.021 | 0.009 | -- |
+| dragon_unseen (8 gens) | **0.9959** | 0.9972 | 0.9945 | 0.021 | 0.024 | 6/15 |
+| **organiser (WildFake+COCO)** | **0.9126** | 0.9286 | 0.8965 | 0.059 | 0.248 | 0/15 |
+
+**iter3 -> iter4 on organiser: Final Score 0.804 -> 0.9126 (+0.109).** The
+Community-Forensics-Small data (LatDiff + GAN + diverse LAION/ImageNet/
+CelebA/COCO reals) transferred strongly to pixel-space diffusion that was
+zero in training. Beats the teammate's 0.871 and my own 0.88-0.91 "realistic
+ceiling" estimate.
+
+**The remaining problem is threshold transfer, not the model.** AUC is
+threshold-free and strong (0.9286 clean). But at the operating threshold
+0.385 -- calibrated on DRAGON latent-diffusion, which the model scores
+confidently -- clean FNR is 24.75% on the organiser mix: pixel-diffusion
+fakes (ADM/DDPM) get lower AI-scores, so a threshold tuned on latent
+diffusion misses them. dragon_unseen at the same threshold is fine (2.4%
+FNR). No single fixed threshold hits 3%/3% across both generator families
+at once; worst robustness conditions are noise_sigma0.10 (FNR 60.7%),
+blur_sigma2 (FPR 39.4%), jpeg_q30 (AUC 0.844).
+
+**Levers for iter5 (Phase C):** (1) DWT/SAFE frequency branch -- directly
+targets the pixel-diffusion AUC gap (SAFE gets ADM 0.82 vs our 0.65-ish).
+(2) add a WildFake-like held-out calibration slice, or adopt a
+generator-family-agnostic threshold rule. (3) SAFE RandomMask/Rotation +
+crop-from-native to harden the frequency signal against jpeg/blur/noise.
+
+### 9k. iter5 (wavelet) -- run, then aborted mid-train for the sprint
+
+iter5 = hybrid, `branch_kind: wavelet`, ViT frozen from iter4 (only the
+0.3M-param DWT branch + fusion head train), SAFE aug + crop-from-native,
+`lr 2e-5`. Trained 5/10 epochs: train loss plateaued at ~0.42 (heavy SAFE
+aug), internal val AUC flat at 0.9993 = iter4's frozen fit. With ~24h left
+to submission, killed it rather than spend ~1h of iGPU on its eval phase --
+the wavelet branch on a frozen backbone was clearly not moving the internal
+number, and iter6 folds a wavelet branch in anyway. `runs/iter5/best.pt`
+kept (epoch 3).
+
+### 9l. iter6 (sprint) -- frozen CLIP ViT-L/14 branch
+
+The teammate's single biggest architecture lever (+0.069 Final Score;
+`experiments.md` teammate cross-check, EXPERIMENTS.md exp 3). New
+`SemanticBranch` in `detector/model.py`: OpenAI CLIP ViT-L/14 vision tower
+(303M params) via timm, **frozen**, always `eval()`; re-normalises
+ImageNet-stat inputs to CLIP stats; LayerNorm + Linear(1024->256) ->
+zero-init residual head into the ViT logit. `HybridDetector` generalised to
+an `nn.ModuleList` of branches, each with its own zero-init head, summed
+into the logit -- `branch_kind` is now a comma list (`clip`, `clip,wavelet`).
+Frozen encoder weights are excluded from the checkpoint (stays ~88 MB) and
+rebuilt from pinned pretrained on load. **No per-branch aux loss** -- the
+mechanism the teammate showed makes a shallow branch memorise
+training-generator spectra and invert on unseen ones; ours trains on the
+final BCE only.
+
+CLIP-L pre-flighted clean on XPU (SYCL kernels cache fine). Sprint config:
+warm-start `runs/iter4/best.pt`, `branch_kind: clip`, ViT frozen, bs 40,
+`samples_per_epoch` 10000, 4 epochs, `lr 2e-4` (tiny head, few steps),
+SAFE aug + crop-from-native. `bash run_fast.sh iter6` (lean: calibrate +
+organiser + dragon_unseen only). Expected organiser Final Score
+0.9126 -> ~0.94-0.97.
+
+### 9g. Literature review + briefing deck (RESEARCH_SYNTHESIS.md)
+
+The briefing PDF is image-only; rendered to PNGs and read slide-by-slide.
+It cites **SAFE (KDD 2025, arXiv 2408.06741)** and **DDA (NeurIPS 2025,
+arXiv 2505.14359)** by name on slide 10 and expects engagement. Full writeup
+in `RESEARCH_SYNTHESIS.md`; artifact
+<https://claude.ai/code/artifact/ccf51ecb-08c6-49d8-8877-3b18588ec7f9>.
+
+**Deck points that change assumptions:**
+- Slide 8 says "high-level CLIP semantics + low-level frequency **patches**"
+  -- local, not a global FFT. Confirms dropping `HybridDetector`'s global
+  log-FFT branch (measured 0.457 AUC unseen by the teammate) and pointing at
+  patch-level statistics instead.
+- Slide 13: "a 2-branch ensemble may win 1% but cost you the demo. Ship what
+  runs." -- a hard caution on the CLIP branch.
+- Slide 16: robustness table + FP/FN error-analysis note explicitly earns
+  Technical Execution (35%) + Innovation & Insight (20%) = 55% of the rubric.
+- Slide 17: image-level binary only, no localisation -- retroactively
+  justifies dropping SID_Set's `tampered` class (section 9b).
+
+**SAFE** (repo read): truncated ResNet (conv1+layer1+layer2), **1.44M
+params**, input is the **DWT bior1.3 J=1 diagonal high-frequency sub-band**
+(not RGB). `RandomCrop(256)` train / `CenterCrop(256)` test, **never
+resize** (ablation: resize always worse). Aug: `RandomRotation(180)`,
+`ColorJitter(0.5)`, `RandomMask` (16px patches, up to 75%, p=0.5). Trained
+ProGAN-only, reaches **ADM 82.1 ACC** -- the generator this project scores
+0.537 AUC on (section 9d). *So the pixel-space gap is preprocessing +
+input-representation, not only missing data.*
+
+**DDA** (repo read): names the JPEG-history frequency shortcut (this
+project's sections 8 and 9f). Its **frequency-alignment transform** is
+usable standalone -- DCT-blend a random real's coefficients into each fake,
+`r~U(0,0.25)`, inverse DCT (code in `dda/Training/data/custom_transforms.py`).
+The highest-value idea not previously in any plan here.
+
+**Community Forensics** (this project's backbone origin, CVPR 2025):
+`OwensLab/CommunityForensics-Small` is 186 streamable parquet shards, ~30k
+images, 50/50 real/fake, LatDiff+GAN+Real across LAION/COCO/ImageNet/CelebA.
+An independent 2025 benchmark (arXiv 2602.07814) ranked Community Forensics
+#1 of 23 detectors out-of-the-box. This is a drop-in multi-generator +
+multi-real-source training pool.
+
+**Revised plan**: ~21 h, **4 training runs** (was 5-6 in `MERGE_PLAN.md`).
+CF-Small collapses the "pixel-space data" and "multi-source reals" phases;
+the DWT branch replaces the abandoned global-frequency work. New parallel
+additions: DCT frequency-energy probe, DWT/SAFE branch, DDA freq-align aug,
+crop-from-native A/B tested early, test-time augmentation, error-analysis
+note written now. Realistic ceiling ~0.88-0.92 Final Score on the matched
+WildFake composition; 3% FPR/FNR is reached by no published method on unseen
+generators.
+
 ## Not yet attempted
 
 - **Full-scale hybrid training run** (section 8 built and benchmark-
@@ -427,6 +981,27 @@ pending that full-scale test.
   cross-dataset gap -- the section-8 quick check only saw 1,920 PS5-only
   images, no new diversity, so it couldn't test this. Needs the same
   multi-hour commitment as sections 5-7's full runs.
+  **-> DROPPED (section 9e).** A teammate's pipeline measured this exact
+  branch design at 0.457 AUC on unseen generators -- below chance, and
+  inverted rather than uninformative. Not worth the run.
+- **Frozen CLIP ViT-L/14 as a second branch** (NEW, top priority after
+  section 9e): +0.069 AUC in the teammate's log, their single biggest
+  architecture win, and the frozen branch alone (0.897) outscored their
+  fused model (0.878). Ojha et al. (CVPR 2023) is the mechanism: frozen
+  features cannot be bent toward the training generators, so whatever
+  separates classes in that space has to be more general. Fits the
+  parameter budget (304M frozen + 21.7M here, well under 2B).
+- **Held-out-generator checkpoint selection and threshold calibration**
+  (NEW, section 9e): move both off the seen-generator validation split onto
+  a withheld generator, per the teammate's experiment 2 (+9.9 deployed
+  balanced accuracy, threshold moved 0.49 -> 0.10). We already hold out 8
+  DRAGON generators; they are currently only scored, not used for
+  selection.
+- **More real-image diversity** (NEW, section 9e): every real image in this
+  project's training pool is SID_Set's. The teammate's largest single win
+  (+0.132) was a multi-source content-matched corpus across 8 real
+  collections, and they measured genuine camera photographs as the weakest
+  real class (27% false-positive rate before the fix).
 - **Lighter fine-tune depth** (Ojha et al.-motivated, still not tried):
   freeze the last transformer block too (train only the head + norm),
   trading some clean accuracy for potentially better cross-generator

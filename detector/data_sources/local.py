@@ -27,7 +27,17 @@ def ingest(settings: dict[str, Any]) -> tuple[Dataset, Dataset, dict[str, Any]]:
         seed=int(settings.get("seed", 2026)),
     )
     augment_probability = float(settings.get("train_augment_probability", 0.7))
-    train_dataset = ImageDataset(train_records, build_train_transform(augment_probability))
+    train_dataset = ImageDataset(
+        train_records,
+        build_train_transform(
+            augment_probability,
+            crop_from_native=bool(settings.get("crop_from_native", False)),
+            safe_augment=bool(settings.get("safe_augment", False)),
+            motion_blur=bool(settings.get("motion_blur", False)),
+            windowed=bool(settings.get("windowed_augment", False)),
+        ),
+        two_view=float(settings.get("supcon_weight", 0.0)) > 0.0,
+    )
     val_dataset = ImageDataset(val_records, build_eval_transform())
     info = {
         "train_count": len(train_records),

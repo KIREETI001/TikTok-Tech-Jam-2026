@@ -1,52 +1,62 @@
-# data_source: "local" (data_dir below only), "sid_set_stream" (SID_Set
-# only), "dragon" (DRAGON only, fake-only -- see detector/data_sources/
-# dragon.py), or "mixed" (local + sid_set_stream + dragon concatenated --
-# the default; see experiments.md sections 5 and 7 for why).
-data_source: mixed
-sid_set_train_shards: 30
-sid_set_val_shards: 1
-dragon_config: Regular
-# 0 for now: DRAGON has hit a persistent (not transient) DNS resolution
-# failure against the HF Hub in this environment across multiple full
-# training attempts -- set back to 5+ once that clears (mixed.py skips
-# DRAGON entirely when this is 0, no network touch at all).
-dragon_shards: 0
+# === TikTok TechJam PS5 detector -- iteration config ===
+# Machine: Intel Arc iGPU (XPU, torch 2.6.0+xpu venv at C:\Users\attil\ttj-venv26),
+# public data only. See experiments.md section 9 for the environment pivot.
+#
+# This file reproduces the iteration-4 baseline: Community Forensics ViT-S,
+# organiser Final Score 0.9126 on the resolution-matched WildFake+COCO set.
+# The hybrid + frozen-CLIP branch (experiments.md 9l) is trained separately
+# via the fusion-head path -- see scratchpad/train_fusion.py -- because the
+# CLIP forward is too slow to run live in the training loop on this iGPU.
 
-# model_type: "vit" (default, Community Forensics alone) or "hybrid"
-# (Community Forensics + a frequency branch, fused as a zero-init residual
-# correction -- see detector/model.py's HybridDetector). vit_checkpoint,
-# only used when model_type is "hybrid", loads the ViT half from an
-# existing checkpoint (e.g. runs/mixed_v2/best.pt) instead of the raw
-# pinned Community Forensics weights -- important: the raw weights have a
-# strong "predict real" bias on this project's data (measured: 100% real
-# predictions on a balanced 480-image set) since they were never
-# fine-tuned on this task, so omitting this silently builds on a much
-# weaker base than the "already validated" model the hybrid design
-# assumes.
+data_source: local
+# iter4: iter3_train (SID full_synthetic + 17 DRAGON generators) +
+# Community-Forensics-Small (many latent-diffusion + GAN generators; real from
+# LAION/ImageNet/CelebA/COCO, perceptual-hash deduped against the eval set by
+# scratchpad/build_iter4.py). No pixel-space diffusion in training, so the
+# organiser score stays a genuine cross-generator test.
+data_dir: C:/Users/attil/ttj-data/iter4_train
+output_dir: runs/iter4
+
+# model_type: "vit" (Community Forensics alone) or "hybrid" (+ branches chosen
+# by branch_kind: comma-separated from clip / wavelet / fft).
 model_type: vit
-# model_type: hybrid
-# vit_checkpoint: runs/mixed_v2/best.pt
-
-data_dir: ../Data/train
-output_dir: runs/latest
+# For the hybrid: model_type: hybrid, branch_kind: clip, vit_checkpoint: runs/iter4/best.pt
+# branch_kind: clip
+# vit_checkpoint: runs/iter4/best.pt
 
 seed: 2026
-validation_fraction: 0.20
+validation_fraction: 0.12
 
 batch_size: 16
-epochs: 5
-learning_rate: 0.00001
+epochs: 10
+learning_rate: 0.00002
 weight_decay: 0.01
-num_workers: 0
+num_workers: 8
 
-# Chance that at least one of {resize-roundtrip, blur, noise, JPEG
-# re-encode} gets applied before the usual crop/flip/color-jitter
-# augmentation (see detector/transforms.py's _RandomRobustnessAugment).
-# Each is applied independently (so 2+ can stack on one image, per Wang et
-# al. CVPR 2020's finding that this -- not picking one corruption at a
-# time -- is what drives cross-generator robustness). 0 disables it.
-train_augment_probability: 0.7
+# iter4_train is ~61k images. Each epoch draws a fresh class-balanced 24k
+# from the pool (~7 min/epoch on the Arc iGPU).
+samples_per_epoch: 24000
 
-threshold: 0.50
+train_augment_probability: 0.8
+
+# --- preprocessing / SAFE augmentations ---
+# crop_from_native: skip Resize(256), RandomCrop(224) from native pixels
+#   (SAFE / slide 10: resize low-pass-filters the artifact away).
+crop_from_native: false
+# safe_augment: RandomRotation(180) + RandomMask 16px patches up to 75% (SAFE).
+safe_augment: false
+
+# --- objective alignment (experiments.md 9c-9h) ---
+select_metric: roc_auc
+loss_pos_weight: 1.0
+balance_classes: true
+lr_schedule: cosine
+warmup_frac: 0.1
+# threshold: after training, run
+#   python -m detector.calibrate runs/iter4/best.pt --genval <dir> --calval <dir> --rule minmax_fpfn --apply
+# to fit the operating point on withheld generators. "auto" keeps the
+# in-loop noise-aware value until then.
+threshold: auto
+
 pretrained: true
 local_files_only: false

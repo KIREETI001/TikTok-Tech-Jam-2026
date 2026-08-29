@@ -15,7 +15,7 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
 from .data import ImageDataset, ImageRecord, load_labeled_root
-from .model import load_checkpoint, resolve_device
+from .model import accelerator_pin_memory, load_checkpoint, resolve_device
 from .transforms import EVALUATION_CONDITIONS, build_eval_transform
 
 IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"})
@@ -160,6 +160,16 @@ def _worst(rows: Sequence[Mapping[str, object]], field: str) -> dict[str, object
     return {"condition": row["condition"], "value": row[field]}
 
 
+def _worst_high(rows: Sequence[Mapping[str, object]], field: str) -> dict[str, object] | None:
+    """Like :func:`_worst` but for fields where higher is worse (FPR, FNR)."""
+
+    available = [row for row in rows if row.get(field) is not None]
+    if not available:
+        return None
+    row = max(available, key=lambda item: (float(item[field]), str(item["condition"])))
+    return {"condition": row["condition"], "value": row[field]}
+
+
 def _representative_errors(errors: Sequence[Mapping[str, object]]) -> list[Mapping[str, object]]:
     grouped: dict[tuple[str, str], list[Mapping[str, object]]] = defaultdict(list)
     for row in errors:
@@ -180,6 +190,30 @@ def _representative_errors(errors: Sequence[Mapping[str, object]]) -> list[Mappi
         )
     )
     return selected
+
+
+class _ConditionDataset(Dataset):
+    """Holds already-decoded RGB PIL images so the 15 evaluation conditions
+    each re-run only the (cheap) transform, not a fresh open+decode. Set
+    ``.transform`` to the condition's ``build_eval_transform(condition)``
+    before iterating.
+    """
+
+    def __init__(
+        self, images: Sequence["Image.Image"], labels: Sequence[int], paths: Sequence[str]
+    ) -> None:
+        self.images = list(images)
+        self.labels = list(labels)
+        self.paths = list(paths)
+        self.transform = None
+
+    def __len__(self) -> int:
+        return len(self.images)
+
+    def __getitem__(self, index: int):
+        image = self.images[index]
+        assert self.transform is not None, "set .transform before iterating"
+        return self.transform(image), self.labels[index], self.paths[index]
 
 
 def _validate_loader_options(batch_size: int, num_workers: int) -> None:
@@ -223,29 +257,44 @@ def evaluate(
 
     metric_rows: list[dict[str, int | float | str | None]] = []
     all_errors: list[dict[str, object]] = []
-    pin_memory = target_device.type == "cuda"
+    pin_memory = accelerator_pin_memory(target_device)
+
+    # Decode every source image once and hold the RGB PIL in memory: the 15
+    # conditions otherwise re-open and re-decode the same files 15 times,
+    # which dominated evaluate() wall time (~14 img/s). Materialized eval
+    # sets are 448px, so ~0.6 MB each decoded -- a few GB for a full set.
+    base_dataset = ImageDataset(selected_records, transform=lambda im: im, return_path=True)
+    base_images: list[Image.Image] = []
+    base_labels: list[int] = []
+    base_paths: list[str] = []
+    for image, label, path in base_dataset:
+        base_images.append(image)
+        base_labels.append(int(label))
+        base_paths.append(str(path))
+    condition_dataset = _ConditionDataset(base_images, base_labels, base_paths)
 
     for condition in EVALUATION_CONDITIONS:
-        dataset = ImageDataset(
-            selected_records,
-            transform=build_eval_transform(condition),
-            return_path=True,
-        )
+        condition_dataset.transform = build_eval_transform(condition)
         loader = DataLoader(
-            dataset,
+            condition_dataset,
             batch_size=batch_size,
             shuffle=False,
-            num_workers=num_workers,
+            num_workers=0,
             pin_memory=pin_memory,
         )
         condition_labels: list[int] = []
         condition_scores: list[float] = []
 
-        with torch.inference_mode():
+        autocast_ctx = (
+            torch.autocast(device_type=target_device.type, dtype=torch.bfloat16)
+            if target_device.type in ("cuda", "xpu")
+            else torch.autocast(device_type="cpu", enabled=False)
+        )
+        with torch.inference_mode(), autocast_ctx:
             for images, labels, paths in loader:
                 probabilities = _probabilities(
                     model, images.to(target_device, non_blocking=pin_memory)
-                ).cpu()
+                ).float().cpu()
                 batch_labels = [int(value) for value in labels.tolist()]
                 batch_scores = [float(value) for value in probabilities.tolist()]
                 if any(label not in {0, 1} for label in batch_labels):
@@ -294,6 +343,20 @@ def evaluate(
             "accuracy": _worst(transformed, "accuracy"),
             "f1": _worst(transformed, "f1"),
             "roc_auc": _worst(transformed, "roc_auc"),
+            "fpr": _worst_high(transformed, "fpr"),
+            "fnr": _worst_high(transformed, "fnr"),
+        },
+        "error_rate_goal": {
+            "target": 0.03,
+            "clean_fpr": clean["fpr"],
+            "clean_fnr": clean["fnr"],
+            "worst_fpr_any_condition": _worst_high(metric_rows, "fpr"),
+            "worst_fnr_any_condition": _worst_high(metric_rows, "fnr"),
+            "all_conditions_within_target": all(
+                (row.get("fpr") is not None and float(row["fpr"]) <= 0.03)
+                and (row.get("fnr") is not None and float(row["fnr"]) <= 0.03)
+                for row in metric_rows
+            ),
         },
         "conditions": metric_rows,
         "representative_errors": {
@@ -367,7 +430,7 @@ def predict_folder(
     cutoff = _threshold(metadata, threshold)
     model.eval()
 
-    pin_memory = target_device.type == "cuda"
+    pin_memory = accelerator_pin_memory(target_device)
     loader = DataLoader(
         _FolderDataset(discovered),
         batch_size=batch_size,

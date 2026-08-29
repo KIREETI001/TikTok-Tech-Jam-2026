@@ -1,229 +1,183 @@
-# Robust AI-Generated Image Detection
+# Robust AI-Generated Image Detection — TikTok TechJam 2026 (PS5)
 
-A small pipeline for TikTok TechJam 2026 Problem Statement 5:
+Binary real-vs-AI image classification, optimised for the scored metric:
 
-```text
-ingest labelled images -> fine-tune one detector -> evaluate robustness -> predict a folder
+**Final Score = 0.5 · AUC(clean) + 0.5 · AUC(robust)** — ROC-AUC, threshold-free,
+`AUC(robust)` = mean over the 14 required transform conditions.
+
+`1` = AI-generated, `0` = authentic.
+
+---
+
+## Results (held-out, cross-generator)
+
+Full methodology and every iteration in [`experiments.md`](experiments.md);
+tabulated in [`TRAINING_REPORT.docx`](TRAINING_REPORT.docx).
+
+| Benchmark | Final Score | Clean AUC | Robust AUC | Clean FPR / FNR |
+|---|---|---|---|---|
+| **Organiser composition** (WildFake pixel-diffusion + COCO, resolution-matched) | **_pending iter6_** / 0.9126 | 0.9286 | 0.8965 | 5.9% / 24.8% |
+| DRAGON — 8 unseen latent-diffusion generators | 0.9959 | 0.9972 | 0.9945 | 2.1% / 2.4% |
+| SID_Set full-synthetic (in-domain) | 0.997 | 0.9985 | 0.9963 | 2.1% / 0.9% |
+
+The organiser composition's six generator families (ADM, DALL·E, DDIM, DDPM,
+Imagen, VQDM) have **zero representation in training** — it is a genuine
+cross-generator test, not a held-out split of the training distribution.
+
+Per-generator clean AUC on the organiser set: ADM 0.82 · DDPM 0.90 ·
+DDIM 0.92 · Imagen 0.95 · DALL·E 0.99 · VQDM 0.99.
+
+---
+
+## Model
+
+```
+Community Forensics ViT-S/16 @224   21,666,049 params   (frozen after warm-start)
+  └─ base logit
+  + frozen OpenAI CLIP ViT-L/14 branch    → LayerNorm → Linear → zero-init residual head
+  + SAFE DWT high-frequency branch         → conv stem → zero-init residual head   (optional)
+  ────────────────────────────────────────────────────────────────────
+  logit = base + Σ branch corrections
 ```
 
-The model is the Community Forensics ViT-S/224 detector (21,666,049
-parameters, well below the 2-billion-parameter limit). `1` means AI-generated
-and `0` means authentic.
+- **Backbone**: `OwensLab/commfor-model-224` (timm `vit_small_patch16_224.augreg_in21k_ft_in1k`).
+  A purpose-built AI-image detector, #1 of 23 on its own benchmark out-of-the-box.
+- **Semantic branch**: `openai/clip-vit-large-patch14` vision tower, **frozen**.
+  A fine-tuned backbone loses ~0.20 AUC seen→unseen; a frozen large ViT loses
+  ~0.09 — freezing is what makes it generalise.
+- **Frequency branch** (SAFE, KDD 2025): input is the DWT `bior1.3` diagonal
+  detail sub-band, not RGB — a *local* frequency statistic that survives crops.
+- **Zero-init residual fusion**: each branch head starts at 0, so the model
+  begins identical to the proven ViT and only ever adds a correction. No
+  per-branch auxiliary loss (that pressure makes a shallow branch memorise
+  training-generator spectra and invert on unseen ones).
+- Trainable parameters: ~0.3–0.6M. Total inference: ~325M — 6× under the 2B limit.
+  Runs on CPU at ~1 s/image.
 
-## Repository
+---
 
-```text
-model_training/
-|-- pipeline.py              ingest, train, evaluate, predict, run, smoke, and
-|                            materialize-sid-set commands
-|-- config.yaml              paths, data source, and basic training settings
-|-- experiments.md           log of every training/eval attempt: config,
-|                            metrics, and what each one found
-|-- detector/
-|   |-- data.py              image discovery, validation, deduplication, split
-|   |-- data_sources/        swappable train data sources (see below)
-|   |   |-- local.py         ../Data/train on local disk
-|   |   |-- sid_set_stream.py  SID_Set streamed over HTTP from the HF Hub
-|   |   `-- mixed.py         local + sid_set_stream concatenated (default)
-|   |-- model.py             Community Forensics model and checkpoints
-|   |-- transforms.py        training transforms and brief evaluation matrix
-|   |-- training.py          one BCE/AdamW fine-tuning loop
-|   `-- evaluation.py        metrics, robustness gaps, errors, JSON prediction
-|-- requirements.txt         runtime dependencies
-`-- README.md                setup, usage, assumptions, and limitations
+## Environment
+
+Trained on a single laptop **Intel Arc iGPU (XPU)** — no CUDA.
+
+```bash
+python -m venv .venv                       # from a 3.12 interpreter
+.venv/Scripts/python -m pip install -r requirements-xpu.txt
 ```
 
-### Data sources
+`requirements-xpu.txt` pins `torch==2.6.0+xpu` / `torchvision==0.21.0+xpu`
+(2.13+xpu hangs on the first oneDNN GEMM with the Nov-2024 Arc driver).
+For an NVIDIA box, use `requirements-cuda.txt` and pass `--device cuda`.
 
-`config.yaml`'s `data_source` key picks how training images are ingested:
+Set before every run:
 
-- `local` -- reads the `../Data/train` tree below only.
-- `sid_set_stream` -- streams the SID_Set dataset directly from the Hugging
-  Face Hub over HTTP at training time, with no local dataset copy needed.
-  Useful on a machine (or CI runner) without `../Data/`. Configure shard
-  counts via `sid_set_train_shards` (default 13). Needs the `pyarrow` and
-  `huggingface-hub` dependencies (already in `requirements.txt`).
-- `mixed` (**default**) -- concatenates `local` and `sid_set_stream`'s
-  `train` shards into one training pool. Added after evaluating the
-  `local`-only checkpoint against SID_Set and finding a real cross-dataset
-  generalization gap (~95% accuracy on PS5's own held-out test vs. ~70% on
-  SID_Set); mixing in ~8,400 SID_Set images closed most of that gap
-  (83.7% on SID_Set) with no measurable cost on PS5 performance. See
-  `experiments.md` sections 4-5 for the full diagnosis and numbers.
-
-All three feed the same `train`/`run` commands; only `evaluate`'s automatic
-reuse of the held-out split (via `run`) is local-path-only today -- evaluate
-a `sid_set_stream`/`mixed`-trained checkpoint with
-`pipeline.py evaluate --data <local-benchmark>` instead (see
-`materialize-sid-set` below for turning a streamed dataset into one of
-those).
-
-## Data layout
-
-Keep data outside Git:
-
-```text
-../Data/
-|-- train/
-|   |-- real/                authentic training images
-|   `-- fake/                AI-generated training images
-`-- test/                    validation-only held-out set (this project's is
-    |-- real/                named test/; benchmark/ works identically --
-    `-- fake/                any folder name is accepted via --data)
+```bash
+export SYCL_CACHE_PERSISTENT=1 SYCL_CACHE_DIR=<cache>/sycl \
+       HF_HOME=<cache>/hf HF_HUB_DISABLE_SYMLINKS_WARNING=1
 ```
 
-`authentic`, `non_aigc`, `ai`, and `aigc` are also accepted class-folder
-names. Ingestion creates a deterministic, stratified train/validation split in
-the manifest. Exact duplicate bytes are removed; the same bytes appearing
-under both labels are rejected.
+The first run downloads the pinned Community Forensics and CLIP checkpoints.
 
-Do not point training at WildFake or another validation-only benchmark.
+---
 
-## Setup
+## Reproduce
 
-PyTorch does not ship CUDA-enabled wheels for Python 3.14 yet (only CPU
-builds), so this project pins **3.12** for GPU training:
+```bash
+# 1. materialise the public training corpus (SID_Set + DRAGON + Community-Forensics-Small)
+python pipeline.py materialize-sid-set --split train  --shards 30 --output <data>/sid_train --max-size 448
+python scratchpad/materialize_dragon.py     # 17 training generators + 8 held out
+python scratchpad/materialize_cf_small.py   # latent-diffusion + GAN + diverse reals
+python scratchpad/build_iter4.py            # assemble + perceptual-hash dedup vs eval set
 
-```powershell
-uv venv .venv --python 3.12
-uv pip install --python .venv\Scripts\python.exe torch==2.13.0 torchvision==0.28.0 --index-url https://download.pytorch.org/whl/cu126
-uv pip install --python .venv\Scripts\python.exe -r requirements.txt
-& ".venv\Scripts\Activate.ps1"
+# 2. one iteration: train -> calibrate on held-out generators -> evaluate
+bash run_iteration.sh <name>                # full: internal + fs + dragon + organiser + montages
+bash run_fast.sh <name>                     # lean: organiser + dragon only
+
+# 3. predict a folder (required deliverable format)
+python pipeline.py predict --input <folder> --output predictions.json --checkpoint runs/<name>/best.pt
 ```
 
-Verify the GPU is actually being used before training:
+`config.yaml` holds the knobs. Key ones:
 
-```powershell
-python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+| Key | Meaning |
+|---|---|
+| `model_type` | `vit` (backbone only) or `hybrid` (+ branches) |
+| `branch_kind` | `clip`, `wavelet`, `fft` — comma-separate for multiple |
+| `vit_checkpoint` | warm-start the backbone from a prior run |
+| `crop_from_native` | skip `Resize`, `RandomCrop(224)` from native pixels (SAFE) |
+| `safe_augment` | `RandomRotation(180)` + `RandomMask` |
+| `threshold` | `auto` = use the held-out-generator-calibrated value |
+
+---
+
+## Threshold calibration
+
+The scored metric is threshold-free; a deployable detector still needs an
+operating point. Fit it on **held-out generators, never the test set**:
+
+| Split | Role |
+|---|---|
+| `train` | fit weights |
+| `val` | watch for training failure only |
+| `genval` | one withheld generator — fits the threshold value |
+| `calval` | a different withheld generator — picks the rule (`minmax_fpfn`) |
+| `holdout` | reported; never an input to any decision |
+
+```bash
+python -m detector.calibrate runs/<name>/best.pt \
+  --genval <dir> --calval <dir> --rule minmax_fpfn --apply
 ```
 
-If this prints `False`, the environment fell back to a CPU-only `torch`
-build -- check `python --version` is 3.12.x, not 3.14, and reinstall `torch`
-from the `cu126` index above.
+This took recall on unseen fakes from ~25% to ~98% with no change to AUC.
 
-The first pretrained run downloads the pinned Community Forensics checkpoint.
-Set `local_files_only: true` in `config.yaml` when it is already cached and the
-machine must remain offline. This only covers the checkpoint download --
-`sid_set_stream` and `mixed` (the default) always fetch data from the HF Hub
-regardless of this flag. For a fully offline run, also set `data_source:
-local` in `config.yaml`.
+---
 
-## Checkpoints, logs, and other run artifacts
+## Evaluation matrix (the 14 required conditions + clean)
 
-`.pth`/`.pt` checkpoints, training logs, and generated manifests are
-deliberately **not** tracked in git (see `.gitignore`) -- they're large,
-regenerate deterministically from `config.yaml` plus the data, and bloat
-clone/checkout time for no benefit. Share a checkpoint by uploading it
-somewhere durable (e.g. the Hugging Face Hub) and linking it here, not by
-committing the binary.
+JPEG q90/70/50/30 · Gaussian blur σ0.5/1.0/2.0 · resize 0.5×/0.25× then up ·
+Gaussian noise σ0.02/0.05/0.10 · brightness/contrast/saturation ±20% ·
+center-crop 80% then resize back.
 
-## Commands
+Each row reports accuracy, F1, ROC-AUC, FPR, FNR, and the clean-to-transformed
+gap ([`detector/evaluation.py`](detector/evaluation.py)). Representative FP/FN
+with the model's probability are written to `errors.csv` and montaged into
+[`ERROR_ANALYSIS.md`](ERROR_ANALYSIS.md).
 
-```powershell
-# Inspect and split the labelled training data.
-python pipeline.py ingest
+---
 
-# Ingest and train; save the best validation-F1 checkpoint.
-python pipeline.py train
+## Outputs (`runs/<name>/`)
 
-# Evaluate that checkpoint on the held-out validation split.
-python pipeline.py evaluate
-
-# One command: ingest -> train -> evaluate.
-python pipeline.py run
-
-# Evaluate an external, validation-only benchmark.
-python pipeline.py evaluate --data ..\Data\test
-
-# Required directory-to-JSON inference.
-python pipeline.py predict --input <image-folder> --output predictions.json
-
-# Self-contained regression check: synthetic data, no ../Data/ needed.
-# Fails loudly if a GPU is present but training silently falls back to CPU
-# (the failure mode this project hit once already), or if loss doesn't drop.
-python pipeline.py smoke
-
-# Fetch SID_Set shards from the HF Hub and save them locally as real/fake
-# JPEGs, so `evaluate` can run its normal robustness matrix against a
-# genuinely different dataset (see experiments.md section 4).
-python pipeline.py materialize-sid-set --split validation --shards 5 --output ..\Data\sid_set_eval
-python pipeline.py evaluate --data ..\Data\sid_set_eval --checkpoint runs\latest\best.pt
+```
+manifest.csv     selected images, labels, split, SHA-256
+best.pt          best validation ROC-AUC checkpoint (frozen CLIP weights excluded)
+training.csv     per-epoch loss + clean validation metrics
+metrics.csv      clean + every transform condition
+summary.json     mean/worst transformed performance, error-rate goal block
+errors.csv       representative FP/FN per condition
 ```
 
-Use `--config`, `--run-dir`, `--checkpoint`, `--device`, and `--epochs` to
-override the small set of defaults. Run `python pipeline.py <command> --help`
-for details.
-
-## Outputs
-
-The default run directory is `runs/latest/`:
-
-```text
-manifest.csv             selected images, labels, split, and SHA-256
-best.pt                  best validation-F1 model
-training.csv             epoch loss and clean validation metrics
-metrics.csv              clean plus every required transform/severity
-summary.json             mean/worst transformed performance and gaps
-errors.csv               representative false positives and false negatives
-```
-
-Prediction JSON deliberately uses only the required fields:
+Prediction JSON uses only the required fields:
 
 ```json
-[
-  {"image_path": "nested/example.jpg", "pred": 1}
-]
+[{"image_path": "nested/example.jpg", "pred": 1}]
 ```
 
-A sibling `predictions.scores.csv` records `probability_ai` and confidence,
-keeping confidence evidence separate from the minimal organizer JSON.
+A sibling `predictions.scores.csv` keeps `probability_ai` separate from the
+minimal organiser JSON.
 
-## Evaluation matrix
-
-- Clean baseline
-- JPEG quality 90, 70, 50, and 30
-- Gaussian blur sigma 0.5, 1.0, and 2.0
-- Resize to 0.5x and 0.25x, then upscale
-- Gaussian noise sigma 0.02, 0.05, and 0.10
-- Brightness, contrast, and saturation jitter within +/-20%
-- Center crop retaining 80%, then resize back
-
-Each row reports accuracy, F1, ROC-AUC, false-positive rate,
-false-negative rate, and the clean-to-transformed gap. `errors.csv` supplies
-the requested representative FP/FN evidence.
-
-## Results
-
-Current default config (`mixed` data source, `train_augment_probability:
-0.7`), full numbers and methodology in `experiments.md`:
-
-| | PS5 `Data/test` (unseen) | SID_Set (unseen, different dataset) |
-|---|---|---|
-| Clean accuracy | 95.15% | 86.39% |
-| Mean robust accuracy (15 conditions) | 90.87% | 86.45% |
-
-The SID_Set column is a genuine cross-dataset generalization check, not a
-held-out split of the same data -- see `experiments.md` sections 4-6 for how
-a ~95%/~70% gap there was diagnosed (ruled out calibration and
-over-aggressive fine-tuning first), closed substantially by mixing SID_Set
-images into training, and narrowed further with more generator diversity
-and a research-validated augmentation recipe. Still well short of a <2%
-false-positive/false-negative target on cross-dataset data (currently
-11-25%) -- see experiments.md section 6 for the honest gap analysis.
+---
 
 ## Limitations
 
-- Results above are checked against one additional dataset (SID_Set) beyond
-  PS5's own held-out test; a genuine "generalizes to any dataset" claim
-  would want at least one more, still-unseen source (see `experiments.md`'s
-  "Not yet attempted" section).
-- Public/properly licensed training data remains the operator's responsibility.
-- The benchmark is evaluation-only and must never be used for training or
-  threshold selection.
-- This is a hackathon prototype, not a production moderation system.
-- The local PS5 deck does not define the polarity or extra-field rules for
-  `pred`; this repository declares and consistently uses `0=real`, `1=AI`.
-
-The previous tests, governance framework, release machinery, submission
-documents, and legacy implementation are preserved outside the repository in
-`../Repo Archive/`.
+- **Sensor noise** is the weakest condition (organiser noise σ0.10 AUC ~0.85)
+  — additive noise most directly overwrites the high-frequency evidence.
+- **ADM** (2021 ImageNet pixel-diffusion) is the hardest single family — the
+  furthest from anything in training.
+- **Localised edits** (real photo + one AI region) are out of scope — this is
+  whole-image classification only.
+- A single fixed threshold cannot be optimal across both pixel-space and
+  latent diffusion at once; we report the threshold-free score and ship the
+  calibration recipe.
+- Hackathon prototype, not a production moderation system.
+- The evaluation-only benchmark must never be used for training or threshold
+  selection (enforced in code: `detector/data.py:assert_not_eval_only`).

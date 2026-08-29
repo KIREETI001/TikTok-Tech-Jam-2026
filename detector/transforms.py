@@ -70,6 +70,24 @@ def _resize_round_trip(image: Image.Image, scale: float) -> Image.Image:
     return small.resize((width, height), Image.Resampling.BICUBIC)
 
 
+def _motion_blur(image: Image.Image, length: int, angle: float) -> Image.Image:
+    """Directional smear (teammate's ``transforms_lib.motion_blur``): a
+    camera pan or fast subject produces one constantly, and a detector that
+    has never seen a long directional smear reads that smoothness as a
+    generator artifact. Done by hand because PIL's kernel filter caps at 5x5.
+    """
+    import math
+
+    dx, dy = math.cos(angle), math.sin(angle)
+    arr = np.asarray(image.convert("RGB"), dtype=np.float32)
+    acc = np.zeros_like(arr)
+    for step in range(length):
+        offset = step - length // 2
+        shifted = np.roll(arr, shift=int(round(offset * dy)), axis=0)
+        acc += np.roll(shifted, shift=int(round(offset * dx)), axis=1)
+    return Image.fromarray(np.clip(acc / length, 0, 255).astype(np.uint8), mode="RGB")
+
+
 def _gaussian_noise(image: Image.Image, sigma: float, seed: int) -> Image.Image:
     pixels = np.asarray(image, dtype=np.float32) / 255.0
     noise = np.random.default_rng(seed).normal(0.0, sigma, size=pixels.shape)
@@ -130,15 +148,17 @@ class _ApplyCondition:
         return apply_condition(image, self.condition, seed=self.seed)
 
 
-CROP_POLICIES: Final = ("resize", "native")
-
-
 class _UpscaleIfSmall:
     """Scale up, preserving aspect ratio, only when an image is smaller than
     the crop window. The one case where resampling is unavoidable.
 
     Everything larger is left completely untouched -- that is the whole
-    point of the ``native`` crop policy (see ``_geometry``).
+    point of the ``crop_from_native`` eval path (see ``_geometry``). Used
+    for evaluation only; training's ``crop_from_native`` path instead relies
+    on ``RandomCrop(pad_if_needed=True)`` (see ``build_train_transform``),
+    since a deterministic evaluation should not be padded with content-free
+    black borders on small images, while a small amount of training-time
+    padding is a harmless, arguably helpful, mild augmentation.
     """
 
     def __init__(self, size: int = 224) -> None:
@@ -155,17 +175,24 @@ class _UpscaleIfSmall:
         )
 
 
-def _geometry(crop_policy: str) -> list:
-    """The resize/crop stage, shared by training and evaluation so the two
-    cannot drift apart.
+def _geometry(crop_from_native: bool) -> list:
+    """The resize/crop stage for evaluation, shared by every eval-only
+    caller so they cannot drift apart.
 
-    ``resize`` (the original Community Forensics recipe): short edge to 256,
-    then a 224 crop. Every image is resampled.
+    ``crop_from_native=False`` (the original Community Forensics recipe):
+    short edge to 256, then a 224 crop. Every image is resampled.
 
-    ``native``: no resampling at all above 224px -- crop the 224 window
-    straight out of the image at its own resolution.
+    ``crop_from_native=True``: no resampling at all above 224px -- crop the
+    224 window straight out of the image at its own resolution. Must match
+    whatever ``build_train_transform``'s ``crop_from_native`` the checkpoint
+    was trained with -- see ``detector.evaluation.evaluate``, which resolves
+    this from the checkpoint's own metadata by default. Scoring a
+    resize-trained model on native crops (or the reverse) pays a
+    train/inference mismatch measured at 0.069 AUC, larger than most of the
+    gains being chased here.
 
-    Why ``native`` is worth having, from two independent measurements:
+    Why ``crop_from_native`` is worth having, from two independent
+    measurements:
 
     - ziyangchua02/model_training found resampling low-pass filters the top
       octave, which is exactly where generator fingerprints live, and that a
@@ -181,32 +208,28 @@ def _geometry(crop_policy: str) -> list:
       feature is confounded with the image's own resolution and is a weaker
       shortcut.
 
-    So the two policies differ on both axes at once -- ``native`` keeps more
-    fingerprint signal AND leaks less shortcut -- which is why this is a
-    policy to measure rather than a constant to flip.
+    So the two policies differ on both axes at once -- native crops keep
+    more fingerprint signal AND leak less shortcut -- which is why this is a
+    setting to measure rather than a constant to flip.
     """
 
-    if crop_policy not in CROP_POLICIES:
-        raise ValueError(
-            f"Unknown crop_policy {crop_policy!r}; choose from {', '.join(CROP_POLICIES)}"
-        )
-    if crop_policy == "resize":
+    if not crop_from_native:
         return [T.Resize(256, interpolation=InterpolationMode.BILINEAR)]
     return [_UpscaleIfSmall(224)]
 
 
-def _native_tail(crop_policy: str = "resize") -> list:
+def _native_tail(crop_from_native: bool = False) -> list:
     """Geometry, then a centre 224 crop, then ImageNet normalization."""
 
     return [
-        *_geometry(crop_policy),
+        *_geometry(crop_from_native),
         T.CenterCrop(224),
         T.ToTensor(),
         T.Normalize(IMAGENET_MEAN, IMAGENET_STD),
     ]
 
 
-def _multi_crop_tail(crop_policy: str = "resize") -> list:
+def _multi_crop_tail(crop_from_native: bool = False) -> list:
     """Five 224 crops (centre + four corners), stacked as (5, C, H, W) for
     score averaging at evaluation time.
 
@@ -215,15 +238,15 @@ def _multi_crop_tail(crop_policy: str = "resize") -> list:
     crop's score is a high-variance sample of what the model thinks about
     the whole image.
 
-    How much this buys depends entirely on ``crop_policy``. Under
-    ``resize`` the image has already been squeezed to a 256 short edge, so
-    five 224 windows overlap almost completely and add little. Under
-    ``native`` they are five genuinely different regions of a full-resolution
-    image, which is the case their result was measured in.
+    How much this buys depends entirely on ``crop_from_native``. When False,
+    the image has already been squeezed to a 256 short edge, so five 224
+    windows overlap almost completely and add little. When True, they are
+    five genuinely different regions of a full-resolution image, which is
+    the case their result was measured in.
     """
 
     return [
-        *_geometry(crop_policy),
+        *_geometry(crop_from_native),
         T.FiveCrop(224),
         T.Lambda(
             lambda crops: torch.stack(
@@ -234,7 +257,7 @@ def _multi_crop_tail(crop_policy: str = "resize") -> list:
 
 
 def build_eval_transform(
-    condition: str = "clean", *, seed: int = 0, n_crops: int = 1, crop_policy: str = "resize"
+    condition: str = "clean", *, seed: int = 0, n_crops: int = 1, crop_from_native: bool = False
 ) -> T.Compose:
     """Build model preprocessing preceded by one fixed evaluation condition.
 
@@ -242,10 +265,8 @@ def build_eval_transform(
     a leading dimension; the caller averages the per-crop scores (see
     detector.evaluation._probabilities).
 
-    ``crop_policy`` must match whatever the checkpoint was trained with --
-    see _geometry. Scoring a resize-trained model on native crops (or the
-    reverse) pays a train/inference mismatch their row 0b measured at 0.069
-    AUC, which is larger than most of the gains being chased here.
+    ``crop_from_native`` must match what the checkpoint was trained with --
+    see _geometry.
     """
 
     if condition not in EVALUATION_CONDITIONS:
@@ -253,7 +274,9 @@ def build_eval_transform(
         raise ValueError(f"Unknown evaluation condition {condition!r}; choose from {choices}")
     if n_crops not in (1, 5):
         raise ValueError(f"n_crops must be 1 or 5, got {n_crops}.")
-    tail = _native_tail(crop_policy) if n_crops == 1 else _multi_crop_tail(crop_policy)
+    tail = (
+        _native_tail(crop_from_native) if n_crops == 1 else _multi_crop_tail(crop_from_native)
+    )
     return T.Compose([_ApplyCondition(condition, seed), *tail])
 
 
@@ -288,10 +311,11 @@ class _RandomRobustnessAugment:
     is not the same as blurring the original image and then downscaling.
     """
 
-    def __init__(self, probability: float = 0.7) -> None:
+    def __init__(self, probability: float = 0.7, motion_blur: bool = False) -> None:
         if not 0.0 <= probability <= 1.0:
             raise ValueError("probability must be between 0 and 1.")
         self.probability = probability
+        self.motion_blur = motion_blur
         # At least one of 4 independent Bernoulli(p_each) fires with
         # probability `probability`: 1 - (1-p_each)^4 = probability.
         self.per_op_probability = 1.0 - (1.0 - probability) ** 0.25
@@ -302,33 +326,86 @@ class _RandomRobustnessAugment:
             result = _resize_round_trip(result, random.uniform(0.25, 1.0))
         if random.random() < self.per_op_probability:
             result = result.filter(ImageFilter.GaussianBlur(radius=random.uniform(0.0, 2.0)))
-        if random.random() < self.per_op_probability:
-            result = _gaussian_noise(result, random.uniform(0.0, 0.10), random.randint(0, 2**31 - 1))
+        # Gaussian noise gets its own slightly-higher probability and a range
+        # that overshoots the eval matrix's max (0.10 -> 0.13): FNR under
+        # heavy noise was the single largest residual failure through
+        # iterations 2-3 (fakes' scores drift toward "real" as noise rises),
+        # so the model needs more exposure to it than the other corruptions.
+        if random.random() < min(1.0, self.per_op_probability * 1.5):
+            result = _gaussian_noise(result, random.uniform(0.0, 0.13), random.randint(0, 2**31 - 1))
+        if self.motion_blur and random.random() < self.per_op_probability * 0.5:
+            result = _motion_blur(result, random.randint(5, 25), random.uniform(0, 3.14159))
         if random.random() < self.per_op_probability:
             result = _jpeg(result, random.randint(30, 100))
         return result
 
 
-def build_train_transform(
-    augment_probability: float = 0.7, *, crop_policy: str = "resize"
-) -> T.Compose:
-    """Model preprocessing with realistic-corruption augmentation (see
-    _RandomRobustnessAugment) plus a small amount of common augmentation.
-    Pass ``augment_probability=0.0`` to disable the corruption augmentation
-    entirely (e.g. for a fast, deterministic-ish smoke test).
-
-    ``crop_policy`` must match what evaluation and inference will use --
-    see _geometry and build_eval_transform.
+class _RandomMask:
+    """SAFE (KDD 2025): zero out random square patches of a tensor, up to
+    ``max_ratio`` of the area, with probability ``p``. Forces the detector
+    onto local statistics -- SAFE's ablation credits it with 2-9 points of
+    cross-generator accuracy. Operates on the CHW tensor (post-ToTensor,
+    pre-Normalize) so a zeroed patch is a true black square.
     """
 
-    return T.Compose(
-        [
-            _RandomRobustnessAugment(augment_probability),
-            *_geometry(crop_policy),
-            T.RandomCrop(224),
-            T.RandomHorizontalFlip(),
-            T.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
-            T.ToTensor(),
-            T.Normalize(IMAGENET_MEAN, IMAGENET_STD),
-        ]
-    )
+    def __init__(self, patch: int = 16, max_ratio: float = 0.75, p: float = 0.5) -> None:
+        self.patch, self.max_ratio, self.p = patch, max_ratio, p
+
+    def __call__(self, tensor):
+        if random.random() >= self.p:
+            return tensor
+        _c, h, w = tensor.shape
+        ratio = random.uniform(0.0, self.max_ratio)
+        n = int(ratio * h * w / (self.patch ** 2))
+        for _ in range(n):
+            top = random.randint(0, max(0, h - self.patch))
+            left = random.randint(0, max(0, w - self.patch))
+            tensor[:, top : top + self.patch, left : left + self.patch] = 0.0
+        return tensor
+
+
+def build_train_transform(
+    augment_probability: float = 0.7,
+    *,
+    crop_from_native: bool = False,
+    safe_augment: bool = False,
+    motion_blur: bool = False,
+    windowed: bool = False,
+) -> T.Compose:
+    """Native-sized preprocessing with realistic-corruption augmentation
+    (see _RandomRobustnessAugment) plus a small amount of common
+    augmentation. ``augment_probability=0.0`` disables the corruption
+    augmentation.
+
+    ``crop_from_native``: skip the ``Resize(256)`` and ``RandomCrop(224)``
+    straight from native pixels -- SAFE / briefing-deck slide 10's
+    "crop, don't down-sample" (resize low-pass-filters away the artifact).
+    Must be kept in sync with whatever ``build_eval_transform`` and
+    inference use for the resulting checkpoint -- see ``_geometry``.
+    ``safe_augment``: add ``RandomRotation(180)`` and ``RandomMask`` (SAFE).
+    ``motion_blur``: add a directional-smear corruption.
+    ``windowed``: take a 320px window, degrade *that*, then crop to 224 --
+    evaluation degrades the whole image and then crops, so applying JPEG or a
+    4x rescale directly to a 224 window is a different operation
+    (teammate's ``WindowedAugment``).
+    """
+
+    steps: list = []
+    if windowed:
+        steps.append(T.RandomCrop(320, pad_if_needed=True))
+    steps.append(_RandomRobustnessAugment(augment_probability, motion_blur=motion_blur))
+    if not crop_from_native:
+        steps.append(T.Resize(256, interpolation=InterpolationMode.BILINEAR))
+    if safe_augment:
+        # fill rotated corners with edge pixels rather than black
+        steps.append(T.RandomRotation(180, interpolation=InterpolationMode.BILINEAR))
+    steps += [
+        T.RandomCrop(224, pad_if_needed=True),
+        T.RandomHorizontalFlip(),
+        T.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
+        T.ToTensor(),
+    ]
+    if safe_augment:
+        steps.append(_RandomMask(patch=16, max_ratio=0.75, p=0.5))
+    steps.append(T.Normalize(IMAGENET_MEAN, IMAGENET_STD))
+    return T.Compose(steps)

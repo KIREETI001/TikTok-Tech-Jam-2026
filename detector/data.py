@@ -68,6 +68,29 @@ def _validate_image(path: Path) -> None:
         raise ValueError(f"Invalid image file: {path}") from exc
 
 
+EVAL_ONLY_PREFIX = "eval_only_"
+
+
+def assert_not_eval_only(root: str | Path) -> None:
+    """Refuse to use an evaluation-only benchmark as training data.
+
+    The organisers designate WildFake (and anything else staged under an
+    ``eval_only_*`` directory -- see EVAL_ONLY_DATASETS.md) as validation
+    only. Training on it, or even selecting a threshold on it, would make
+    every reported number meaningless, so the training path calls this and
+    fails loudly rather than relying on nobody mistyping ``data_dir``.
+    """
+
+    path = Path(root).expanduser().resolve()
+    for part in path.parts:
+        if part.casefold().startswith(EVAL_ONLY_PREFIX):
+            raise ValueError(
+                f"{path} is an evaluation-only benchmark ('{part}') and must "
+                "never be used for training, validation-split selection, or "
+                "threshold calibration. See EVAL_ONLY_DATASETS.md."
+            )
+
+
 def load_labeled_root(root: str | Path) -> list[ImageRecord]:
     """Load and validate a ``root/{label}/...`` image tree.
 
@@ -213,6 +236,7 @@ def ingest_training_data(
     """Validate, deduplicate, split, and manifest a training image tree."""
 
     root_path = Path(root).expanduser().resolve()
+    assert_not_eval_only(root_path)
     records = load_labeled_root(root_path)
     train, validation = stratified_split(
         records,
@@ -232,6 +256,7 @@ class ImageDataset(Dataset):
         transform: Callable | None = None,
         *,
         return_path: bool = False,
+        two_view: bool = False,
     ) -> None:
         self.records = list(records)
         if transform is None:
@@ -240,6 +265,9 @@ class ImageDataset(Dataset):
             transform = build_eval_transform()
         self.transform = transform
         self.return_path = return_path
+        # two_view: apply the (stochastic) transform twice and return both,
+        # for the supervised-contrastive loss (Phase D).
+        self.two_view = two_view
 
     def __len__(self) -> int:
         return len(self.records)
@@ -252,6 +280,8 @@ class ImageDataset(Dataset):
         except Exception as exc:
             raise RuntimeError(f"Could not load image from manifest: {record.path}") from exc
 
+        if self.two_view:
+            return self.transform(image), self.transform(image), record.label
         image = self.transform(image)
         if self.return_path:
             return image, record.label, str(record.path)

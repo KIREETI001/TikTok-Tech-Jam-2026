@@ -1,90 +1,70 @@
-# data_source: "local" (data_dir below only), "sid_set_stream" (SID_Set
-# only), "dragon" (DRAGON only, fake-only -- see detector/data_sources/
-# dragon.py), or "mixed" (local + sid_set_stream + dragon concatenated --
-# the default; see experiments.md sections 5 and 7 for why).
-data_source: mixed
-# 100 shards (~83k images) up from 30 (~25k), with the local CIFAKE source
-# capped below. Measured 2026-08-29: Data/train is CIFAKE -- 99,080 images,
-# every one 32x32 from a single generator (SD 1.4) -- while every evaluation
-# set is 1024px from many generators. Uncapped, that made training ~80%
-# 7x-upscaled thumbnails from one generator. See experiments.md section 10.
-# Stays at 30. A first attempt used 100 and spent 5.5 hours at 0% GPU:
-# _load_shard_images is lru_cache(maxsize=32), so 30 shards stay resident for
-# the whole run ("first access only", as its docstring says) but 100 thrash --
-# training shuffles across all of them, every access evicts a shard needed
-# moments later, and the run re-fetched shards 432 times without finishing a
-# single epoch. Raising maxsize is not the fix either: at ~170MB of image
-# bytes per shard, 100 resident shards is ~17GB of RAM.
+# === TikTok TechJam PS5 detector -- iteration config ===
+# Machine: Intel Arc iGPU (XPU, torch 2.6.0+xpu venv at C:\Users\attil\ttj-venv26),
+# public data only. See experiments.md section 9 for the environment pivot.
 #
-# The deeper reason to stay at 30: shard count buys *volume*, not generator
-# diversity -- SID_Set's generator set is identical whether you read 30 shards
-# or 100. The ratio against CIFAKE is what mattered, and capping CIFAKE
-# achieves it far more cheaply.
-sid_set_train_shards: 30
-sid_set_val_shards: 1
-
-# Cap the 32x32 CIFAKE contribution so the pool is majority real-resolution.
-# 6k local against ~20k SID_Set puts high-resolution images at ~77% of
-# training -- the same inversion the 100-shard attempt was after, at a quarter
-# of the data and with no re-downloading. Also ~3x faster per epoch than the
-# 99k-image runs, which matters more than volume here: SSAFE measured 10k
-# curated images beating a 4M-image baseline.
-local_max_train_images: 6000
-dragon_config: Regular
-# 0 for now: DRAGON has hit a persistent (not transient) DNS resolution
-# failure against the HF Hub in this environment across multiple full
-# training attempts -- set back to 5+ once that clears (mixed.py skips
-# DRAGON entirely when this is 0, no network touch at all).
-dragon_shards: 0
-
-# model_type: "vit" (default, Community Forensics alone) or "hybrid"
-# (Community Forensics + a frequency branch, fused as a zero-init residual
-# correction -- see detector/model.py's HybridDetector). vit_checkpoint,
-# only used when model_type is "hybrid", loads the ViT half from an
-# existing checkpoint (e.g. runs/mixed_v2/best.pt) instead of the raw
-# pinned Community Forensics weights -- important: the raw weights have a
-# strong "predict real" bias on this project's data (measured: 100% real
-# predictions on a balanced 480-image set) since they were never
-# fine-tuned on this task, so omitting this silently builds on a much
-# weaker base than the "already validated" model the hybrid design
-# assumes.
+# This file reproduces the iteration-4 baseline: Community Forensics ViT-S,
+# organiser Final Score 0.9126 on the resolution-matched WildFake+COCO set.
+# The hybrid + frozen-CLIP branch (experiments.md 9l) is trained separately
+# via the fusion-head path -- see scratchpad/train_fusion.py -- because the
+# CLIP forward is too slow to run live in the training loop on this iGPU.
 #
-# Back to "vit" after the hybrid was measured twice and moved nothing:
-# runs/mixed_hybrid_v1 (branch structurally frozen by an exact-zero init) was
-# flat at F1 0.9405-0.9408 for 5 epochs, and runs/mixed_hybrid_v2 (init fixed,
-# gradients confirmed flowing) moved unseen SID_Set AUC by +0.00005 in a full
-# epoch. ziyangchua02 independently measured their FFT branch at 0.457 AUC on
-# unseen generators, below chance. Two negative results is enough.
+# MERGE NOTE (this device, CUDA laptop): data_dir below is the path on the
+# teammate's machine and does not exist here -- rebuild iter4_train locally
+# before training (see scratchpad/build_iter4.py) or point data_dir at
+# wherever the equivalent corpus lands on this box. Everything else in this
+# file (SAFE flags, branch_kind, select_metric) applies unchanged; num_workers
+# can go higher than the streamed-source runs used, since data_source: local
+# reads a materialized folder rather than re-fetching HF shards per epoch.
+
+data_source: local
+# iter4: iter3_train (SID full_synthetic + 17 DRAGON generators) +
+# Community-Forensics-Small (many latent-diffusion + GAN generators; real from
+# LAION/ImageNet/CelebA/COCO, perceptual-hash deduped against the eval set by
+# scratchpad/build_iter4.py). No pixel-space diffusion in training, so the
+# organiser score stays a genuine cross-generator test.
+data_dir: C:/Users/attil/ttj-data/iter4_train
+output_dir: runs/iter4
+
+# model_type: "vit" (Community Forensics alone) or "hybrid" (+ branches chosen
+# by branch_kind: comma-separated from clip / wavelet / fft).
 model_type: vit
-# vit_checkpoint: runs/mixed_v2/best.pt
-
-data_dir: ../Data/train
-output_dir: runs/highres_v2
+# For the hybrid: model_type: hybrid, branch_kind: clip, vit_checkpoint: runs/iter4/best.pt
+# branch_kind: clip
+# vit_checkpoint: runs/iter4/best.pt
 
 seed: 2026
-validation_fraction: 0.20
+validation_fraction: 0.12
 
 batch_size: 16
-epochs: 5
-learning_rate: 0.00001
+epochs: 10
+learning_rate: 0.00002
 weight_decay: 0.01
-# Must stay 0 while any streamed source is in the mix, for a reason beyond
-# the earlier throughput benchmark: _load_shard_images caches shard bytes in
-# process memory, so every DataLoader worker on Windows (spawn, not fork)
-# would build its own cache -- N workers means N copies of the downloads and
-# N copies of the RAM. The 1024px decode cost genuinely would benefit from
-# workers, but only once the data is local; see the materialize-sid-set
-# command if that trade ever becomes worth making.
-num_workers: 0
+num_workers: 8
 
-# Chance that at least one of {resize-roundtrip, blur, noise, JPEG
-# re-encode} gets applied before the usual crop/flip/color-jitter
-# augmentation (see detector/transforms.py's _RandomRobustnessAugment).
-# Each is applied independently (so 2+ can stack on one image, per Wang et
-# al. CVPR 2020's finding that this -- not picking one corruption at a
-# time -- is what drives cross-generator robustness). 0 disables it.
-train_augment_probability: 0.7
+# iter4_train is ~61k images. Each epoch draws a fresh class-balanced 24k
+# from the pool (~7 min/epoch on the Arc iGPU).
+samples_per_epoch: 24000
 
-threshold: 0.50
+train_augment_probability: 0.8
+
+# --- preprocessing / SAFE augmentations ---
+# crop_from_native: skip Resize(256), RandomCrop(224) from native pixels
+#   (SAFE / slide 10: resize low-pass-filters the artifact away).
+crop_from_native: false
+# safe_augment: RandomRotation(180) + RandomMask 16px patches up to 75% (SAFE).
+safe_augment: false
+
+# --- objective alignment (experiments.md 9c-9h) ---
+select_metric: roc_auc
+loss_pos_weight: 1.0
+balance_classes: true
+lr_schedule: cosine
+warmup_frac: 0.1
+# threshold: after training, run
+#   python -m detector.calibrate runs/iter4/best.pt --genval <dir> --calval <dir> --rule minmax_fpfn --apply
+# to fit the operating point on withheld generators. "auto" keeps the
+# in-loop noise-aware value until then.
+threshold: auto
+
 pretrained: true
 local_files_only: false

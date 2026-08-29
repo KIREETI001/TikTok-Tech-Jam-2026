@@ -15,7 +15,7 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
 from .data import ImageDataset, ImageRecord, load_labeled_root
-from .model import load_checkpoint, resolve_device
+from .model import accelerator_pin_memory, load_checkpoint, resolve_device
 from .transforms import CONDITION_GROUPS, EVALUATION_CONDITIONS, build_eval_transform
 
 IMAGE_EXTENSIONS = frozenset({".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"})
@@ -203,6 +203,16 @@ def _worst(rows: Sequence[Mapping[str, object]], field: str) -> dict[str, object
     return {"condition": row["condition"], "value": row[field]}
 
 
+def _worst_high(rows: Sequence[Mapping[str, object]], field: str) -> dict[str, object] | None:
+    """Like :func:`_worst` but for fields where higher is worse (FPR, FNR)."""
+
+    available = [row for row in rows if row.get(field) is not None]
+    if not available:
+        return None
+    row = max(available, key=lambda item: (float(item[field]), str(item["condition"])))
+    return {"condition": row["condition"], "value": row[field]}
+
+
 def _representative_errors(errors: Sequence[Mapping[str, object]]) -> list[Mapping[str, object]]:
     grouped: dict[tuple[str, str], list[Mapping[str, object]]] = defaultdict(list)
     for row in errors:
@@ -225,6 +235,30 @@ def _representative_errors(errors: Sequence[Mapping[str, object]]) -> list[Mappi
     return selected
 
 
+class _ConditionDataset(Dataset):
+    """Holds already-decoded RGB PIL images so the 15 evaluation conditions
+    each re-run only the (cheap) transform, not a fresh open+decode. Set
+    ``.transform`` to the condition's ``build_eval_transform(condition)``
+    before iterating.
+    """
+
+    def __init__(
+        self, images: Sequence["Image.Image"], labels: Sequence[int], paths: Sequence[str]
+    ) -> None:
+        self.images = list(images)
+        self.labels = list(labels)
+        self.paths = list(paths)
+        self.transform = None
+
+    def __len__(self) -> int:
+        return len(self.images)
+
+    def __getitem__(self, index: int):
+        image = self.images[index]
+        assert self.transform is not None, "set .transform before iterating"
+        return self.transform(image), self.labels[index], self.paths[index]
+
+
 def _validate_loader_options(batch_size: int, num_workers: int) -> None:
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1.")
@@ -243,7 +277,7 @@ def evaluate(
     *,
     records: Sequence[ImageRecord] | None = None,
     n_crops: int = 1,
-    crop_policy: str | None = None,
+    crop_from_native: bool | None = None,
 ) -> dict[str, object]:
     """Evaluate a checkpoint on clean images and all 14 brief transformations.
 
@@ -255,11 +289,11 @@ def evaluate(
     scoring one centre crop (see transforms._multi_crop_tail). It is
     inference-only, so it applies to checkpoints already trained.
 
-    ``crop_policy`` defaults to whatever the checkpoint recorded at training
-    time, and that default is the point: scoring a resize-trained model on
-    native crops (or the reverse) silently costs more AUC than most of the
-    changes being measured here, and nothing in the numbers would say so.
-    Pass it explicitly only to deliberately measure that mismatch.
+    ``crop_from_native`` defaults to whatever the checkpoint recorded at
+    training time, and that default is the point: scoring a resize-trained
+    model on native crops (or the reverse) silently costs more AUC than most
+    of the changes being measured here, and nothing in the numbers would say
+    so. Pass it explicitly only to deliberately measure that mismatch.
     """
 
     _validate_loader_options(batch_size, num_workers)
@@ -276,38 +310,56 @@ def evaluate(
     cutoff = _threshold(metadata, threshold)
     model.eval()
 
-    # Checkpoints trained before crop_policy existed carry no such key; they
-    # were all trained under "resize", so that is the correct fallback.
-    resolved_crop_policy = crop_policy or metadata.get("crop_policy", "resize")
-    print(f"[EVALUATE] crop_policy={resolved_crop_policy} n_crops={n_crops}")
+    # Checkpoints trained before crop_from_native existed carry no such key;
+    # they were all trained under the resize path, so False is the correct
+    # fallback.
+    resolved_crop_from_native = (
+        bool(metadata.get("crop_from_native", False)) if crop_from_native is None else crop_from_native
+    )
+    print(f"[EVALUATE] crop_from_native={resolved_crop_from_native} n_crops={n_crops}")
 
     metric_rows: list[dict[str, int | float | str | None]] = []
     all_errors: list[dict[str, object]] = []
-    pin_memory = target_device.type == "cuda"
+    pin_memory = accelerator_pin_memory(target_device)
+
+    # Decode every source image once and hold the RGB PIL in memory: the 15
+    # conditions otherwise re-open and re-decode the same files 15 times,
+    # which dominated evaluate() wall time (~14 img/s). Materialized eval
+    # sets are 448px, so ~0.6 MB each decoded -- a few GB for a full set.
+    base_dataset = ImageDataset(selected_records, transform=lambda im: im, return_path=True)
+    base_images: list[Image.Image] = []
+    base_labels: list[int] = []
+    base_paths: list[str] = []
+    for image, label, path in base_dataset:
+        base_images.append(image)
+        base_labels.append(int(label))
+        base_paths.append(str(path))
+    condition_dataset = _ConditionDataset(base_images, base_labels, base_paths)
 
     for condition in EVALUATION_CONDITIONS:
-        dataset = ImageDataset(
-            selected_records,
-            transform=build_eval_transform(
-                condition, n_crops=n_crops, crop_policy=resolved_crop_policy
-            ),
-            return_path=True,
+        condition_dataset.transform = build_eval_transform(
+            condition, n_crops=n_crops, crop_from_native=resolved_crop_from_native
         )
         loader = DataLoader(
-            dataset,
+            condition_dataset,
             batch_size=batch_size,
             shuffle=False,
-            num_workers=num_workers,
+            num_workers=0,
             pin_memory=pin_memory,
         )
         condition_labels: list[int] = []
         condition_scores: list[float] = []
 
-        with torch.inference_mode():
+        autocast_ctx = (
+            torch.autocast(device_type=target_device.type, dtype=torch.bfloat16)
+            if target_device.type in ("cuda", "xpu")
+            else torch.autocast(device_type="cpu", enabled=False)
+        )
+        with torch.inference_mode(), autocast_ctx:
             for images, labels, paths in loader:
                 probabilities = _probabilities(
                     model, images.to(target_device, non_blocking=pin_memory)
-                ).cpu()
+                ).float().cpu()
                 batch_labels = [int(value) for value in labels.tolist()]
                 batch_scores = [float(value) for value in probabilities.tolist()]
                 if any(label not in {0, 1} for label in batch_labels):
@@ -363,6 +415,20 @@ def evaluate(
             "accuracy": _worst(transformed, "accuracy"),
             "f1": _worst(transformed, "f1"),
             "roc_auc": _worst(transformed, "roc_auc"),
+            "fpr": _worst_high(transformed, "fpr"),
+            "fnr": _worst_high(transformed, "fnr"),
+        },
+        "error_rate_goal": {
+            "target": 0.03,
+            "clean_fpr": clean["fpr"],
+            "clean_fnr": clean["fnr"],
+            "worst_fpr_any_condition": _worst_high(metric_rows, "fpr"),
+            "worst_fnr_any_condition": _worst_high(metric_rows, "fnr"),
+            "all_conditions_within_target": all(
+                (row.get("fpr") is not None and float(row["fpr"]) <= 0.03)
+                and (row.get("fnr") is not None and float(row["fnr"]) <= 0.03)
+                for row in metric_rows
+            ),
         },
         "conditions": metric_rows,
         "representative_errors": {
@@ -436,7 +502,7 @@ def predict_folder(
     cutoff = _threshold(metadata, threshold)
     model.eval()
 
-    pin_memory = target_device.type == "cuda"
+    pin_memory = accelerator_pin_memory(target_device)
     loader = DataLoader(
         _FolderDataset(discovered),
         batch_size=batch_size,

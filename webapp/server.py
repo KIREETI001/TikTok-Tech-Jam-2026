@@ -95,8 +95,8 @@ def _read_image(raw: bytes) -> Image.Image:
 @torch.no_grad()
 def _score(image: Image.Image, condition: str = "clean") -> float:
     """P(AI) for one image under one evaluation condition."""
-    crop_policy = _META.get("crop_policy") or "resize"
-    transform = build_eval_transform(condition, crop_policy=crop_policy)
+    crop_from_native = bool(_META.get("crop_from_native", False))
+    transform = build_eval_transform(condition, crop_from_native=crop_from_native)
     tensor = transform(image).unsqueeze(0).to(_DEVICE)
     return float(_probabilities(_MODEL, tensor)[0])
 
@@ -128,7 +128,7 @@ def health() -> JSONResponse:
             "device": str(_DEVICE),
             "model_type": _META.get("model_type") or "vit",
             "parameters": _META.get("parameter_count"),
-            "crop_policy": _META.get("crop_policy") or "resize",
+            "crop_from_native": bool(_META.get("crop_from_native", False)),
             "threshold": float(_META.get("threshold", 0.5)),
         }
     )

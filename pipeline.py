@@ -17,7 +17,7 @@ from PIL import Image
 from detector.data import ingest_training_data, load_manifest
 from detector.data_sources import get_data_source
 from detector.evaluation import evaluate, predict_folder
-from detector.model import resolve_device
+from detector.model import resolve_device, xpu_available
 from detector.training import train_model, train_model_from_datasets
 
 
@@ -42,7 +42,7 @@ def _parser() -> argparse.ArgumentParser:
     train = commands.add_parser("train", help="ingest data and train one detector")
     common(train, data=True)
     train.add_argument("--epochs", type=int)
-    train.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    train.add_argument("--device", choices=("auto", "cpu", "cuda", "xpu"), default="auto")
     train.add_argument("--no-pretrained", action="store_true")
     train.add_argument(
         "--offline",
@@ -64,13 +64,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     evaluate_command.add_argument("--checkpoint", help="default: <run-dir>/best.pt")
     evaluate_command.add_argument(
-        "--device", choices=("auto", "cpu", "cuda"), default="auto"
+        "--device", choices=("auto", "cpu", "cuda", "xpu"), default="auto"
     )
 
     run = commands.add_parser("run", help="one command: ingest, train, and evaluate")
     common(run, data=True)
     run.add_argument("--epochs", type=int)
-    run.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    run.add_argument("--device", choices=("auto", "cpu", "cuda", "xpu"), default="auto")
     run.add_argument("--no-pretrained", action="store_true")
     run.add_argument("--offline", action="store_true")
 
@@ -79,7 +79,7 @@ def _parser() -> argparse.ArgumentParser:
     predict.add_argument("--input", required=True, help="unlabeled image directory")
     predict.add_argument("--output", default="predictions.json")
     predict.add_argument("--checkpoint", help="default: <run-dir>/best.pt")
-    predict.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
+    predict.add_argument("--device", choices=("auto", "cpu", "cuda", "xpu"), default="auto")
 
     smoke = commands.add_parser(
         "smoke",
@@ -87,9 +87,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     smoke.add_argument(
         "--device",
-        choices=("auto", "cpu", "cuda"),
+        choices=("auto", "cpu", "cuda", "xpu"),
         default="auto",
-        help="fails if a GPU is present but training doesn't actually run on cuda",
+        help="fails if an accelerator (CUDA or Intel XPU) is present but training falls back to CPU",
     )
     smoke.add_argument("--epochs", type=int, default=2)
 
@@ -105,6 +105,19 @@ def _parser() -> argparse.ArgumentParser:
     materialize.add_argument("--shards", type=int, default=5)
     materialize.add_argument(
         "--output", required=True, help="destination folder (gets real/ and fake/ subfolders)"
+    )
+    materialize.add_argument(
+        "--max-size",
+        type=int,
+        default=0,
+        help=(
+            "downscale each image so its short edge is at most this many pixels "
+            "before saving (0 = keep native). SID_Set images are ~1024px; the "
+            "detector only ever sees a 224 crop, so storing them smaller cuts "
+            "per-epoch decode + augmentation cost several-fold with no effect on "
+            "what the model learns. Keep train and every eval set at the SAME "
+            "value so the fixed-severity robustness matrix stays comparable."
+        ),
     )
 
     report = commands.add_parser(
@@ -170,6 +183,17 @@ def _ingest(settings: dict[str, Any]):
     return train_dataset, val_dataset, info
 
 
+def _opt_threshold(settings: dict[str, Any]) -> float | None:
+    """Config ``threshold``: a number pins the operating point; ``auto`` (or
+    absent) defers to the value the training loop calibrated on validation
+    and stored in the checkpoint (see detector.training)."""
+
+    value = settings.get("threshold", "auto")
+    if value is None or (isinstance(value, str) and value.strip().lower() == "auto"):
+        return None
+    return float(value)
+
+
 def _train(
     settings: dict[str, Any],
     args: argparse.Namespace,
@@ -191,12 +215,24 @@ def _train(
         device=args.device,
         pretrained=pretrained,
         local_files_only=bool(settings.get("local_files_only", False)) or args.offline,
-        threshold=float(settings.get("threshold", 0.5)),
+        threshold=_opt_threshold(settings) if _opt_threshold(settings) is not None else 0.5,
         train_count=info["train_count"],
         val_count=info["val_count"],
         model_type=str(settings.get("model_type", "vit")),
         vit_checkpoint=settings.get("vit_checkpoint"),
-        crop_policy=str(settings.get("crop_policy", "resize")),
+        crop_from_native=bool(settings.get("crop_from_native", False)),
+        branch_kind=str(settings.get("branch_kind", "wavelet")),
+        loss_pos_weight=float(settings.get("loss_pos_weight", 1.0)),
+        select_metric=str(settings.get("select_metric", "roc_auc")),
+        balance_classes=bool(settings.get("balance_classes", False)),
+        samples_per_epoch=(
+            int(settings["samples_per_epoch"])
+            if settings.get("samples_per_epoch") not in (None, "", 0)
+            else None
+        ),
+        lr_schedule=str(settings.get("lr_schedule", "constant")),
+        warmup_frac=float(settings.get("warmup_frac", 0.05)),
+        supcon_weight=float(settings.get("supcon_weight", 0.0)),
     )
     saved_parameter_count = torch.load(checkpoint, map_location="cpu", weights_only=True)["metadata"][
         "parameter_count"
@@ -230,7 +266,7 @@ def _evaluate(
         batch_size=int(settings.get("batch_size", 16)),
         num_workers=int(settings.get("num_workers", 0)),
         device=args.device,
-        threshold=float(settings.get("threshold", 0.5)),
+        threshold=_opt_threshold(settings),
     )
     robust = summary["robust_mean"]
     print(
@@ -260,10 +296,13 @@ def _make_synthetic_images(root: Path, *, per_class: int = 20, size: int = 224) 
 
 
 def _cmd_smoke(args: argparse.Namespace) -> None:
-    if args.device in ("cuda", "auto") and not torch.cuda.is_available():
-        if args.device == "cuda":
-            raise RuntimeError("smoke --device cuda requested but torch.cuda.is_available() is False.")
-        print("[SMOKE] WARNING: no CUDA GPU detected; running on CPU (cannot verify GPU training).")
+    accelerator_present = torch.cuda.is_available() or xpu_available()
+    if args.device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("smoke --device cuda requested but torch.cuda.is_available() is False.")
+    if args.device == "xpu" and not xpu_available():
+        raise RuntimeError("smoke --device xpu requested but torch.xpu.is_available() is False.")
+    if args.device == "auto" and not accelerator_present:
+        print("[SMOKE] WARNING: no CUDA/XPU accelerator detected; running on CPU (cannot verify GPU training).")
 
     with tempfile.TemporaryDirectory(prefix="pipeline_smoke_") as tmp:
         tmp_path = Path(tmp)
@@ -286,9 +325,9 @@ def _cmd_smoke(args: argparse.Namespace) -> None:
         )
 
         resolved = resolve_device(args.device)
-        if args.device != "cpu" and resolved.type != "cuda" and torch.cuda.is_available():
+        if args.device != "cpu" and resolved.type == "cpu" and accelerator_present:
             raise RuntimeError(
-                f"smoke resolved to device={resolved} despite a CUDA GPU being available."
+                f"smoke resolved to device={resolved} despite a CUDA/XPU accelerator being available."
             )
 
         history_path = run_dir / "training.csv"
@@ -331,18 +370,34 @@ def _cmd_materialize_sid_set(args: argparse.Namespace) -> None:
     dataset = SIDSetDataset(args.split, args.shards)
     print(f"[MATERIALIZE] {len(dataset)} images indexed; saving to {output}")
 
+    from detector.data_sources.sid_set_stream import _load_shard_images
+
+    max_size = int(getattr(args, "max_size", 0) or 0)
     counts = {name: 0 for name in idx_to_class.values()}
+    seen_shard: str | None = None
     for i in range(len(dataset)):
+        # Materialization walks images in shard order and never revisits a
+        # shard, but _load_shard_images' LRU keeps the last 32 shard tables
+        # (~0.5 GB each) -> ~15 GB peak on 30+ shards. Drop the cache each
+        # time we cross a shard boundary so only one shard is resident.
+        shard_path = dataset._locations[i][0]
+        if shard_path != seen_shard:
+            _load_shard_images.cache_clear()
+            seen_shard = shard_path
         image, label = dataset[i]
         img_id, _label = dataset.samples[i]
         class_name = idx_to_class[label]
         filename = _sanitize_img_id(img_id, i) + ".jpg"
+        if max_size and min(image.size) > max_size:
+            scale = max_size / min(image.size)
+            new_size = (round(image.width * scale), round(image.height * scale))
+            image = image.resize(new_size, Image.LANCZOS)
         image.save(output / class_name / filename, quality=95)
         counts[class_name] += 1
         if (i + 1) % 500 == 0 or i + 1 == len(dataset):
             print(f"[MATERIALIZE] saved {i + 1}/{len(dataset)}")
 
-    print(f"[MATERIALIZE] done: {counts}")
+    print(f"[MATERIALIZE] done: {counts} (max_size={max_size or 'native'})")
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -453,7 +508,7 @@ def main(argv: list[str] | None = None) -> int:
                 batch_size=int(settings.get("batch_size", 16)),
                 num_workers=int(settings.get("num_workers", 0)),
                 device=args.device,
-                threshold=float(settings.get("threshold", 0.5)),
+                threshold=_opt_threshold(settings),
             )
             print(f"[PREDICT] images={len(records)} output={Path(args.output).resolve()}")
         else:

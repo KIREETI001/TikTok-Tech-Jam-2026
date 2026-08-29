@@ -83,11 +83,19 @@ def ingest(settings: dict[str, Any]) -> tuple[Dataset, Dataset, dict[str, Any]]:
             val_records = _balanced_subset(val_records, train_records_val_limit, seed)
 
     augment_probability = float(settings.get("train_augment_probability", 0.7))
-    crop_policy = str(settings.get("crop_policy", "resize"))
+    crop_from_native = bool(settings.get("crop_from_native", False))
     train_dataset = ImageDataset(
-        train_records, build_train_transform(augment_probability, crop_policy=crop_policy)
+        train_records,
+        build_train_transform(
+            augment_probability,
+            crop_from_native=crop_from_native,
+            safe_augment=bool(settings.get("safe_augment", False)),
+            motion_blur=bool(settings.get("motion_blur", False)),
+            windowed=bool(settings.get("windowed_augment", False)),
+        ),
+        two_view=float(settings.get("supcon_weight", 0.0)) > 0.0,
     )
-    val_dataset = ImageDataset(val_records, build_eval_transform(crop_policy=crop_policy))
+    val_dataset = ImageDataset(val_records, build_eval_transform(crop_from_native=crop_from_native))
     info = {
         "train_count": len(train_records),
         "val_count": len(val_records),

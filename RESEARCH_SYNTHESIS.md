@@ -335,3 +335,69 @@ published method on unseen generators; the honest framing for the submission
 is the deck's own words -- *"this remains an open question... no silver
 bullet"* -- backed by our robustness table and error analysis showing exactly
 where and why the model fails.
+
+---
+
+## Deep research round 2 (2026-08-30, sprint) -- generator signatures + real markers
+
+Sources: comprehensive review arXiv 2502.15176; "How well are open-sourced AI
+detectors out-of-the-box" 2026 benchmark 2602.07814; Corvi et al. ICASSP 2023
+(2211.00680); NPR CVPR 2024 (2312.10461); Ojha CVPR 2023 (2302.10174); "Fake
+or JPEG?" ECCV 2024 WS (2403.17608); "How Noise Benefits AI-generated Image
+Detection" 2511.16136; NTIRE 2026 robust-detection challenge.
+
+### Fingerprint taxonomy, legacy -> modern
+
+| Family | Fingerprint | Strength | Our score |
+|---|---|---|---|
+| GAN (ProGAN/StyleGAN/BigGAN) | periodic spectral peaks from transposed-conv upsampling; checkerboard; per-arch attributable | strong | -- |
+| Pixel diffusion (ADM/DDPM/DDIM) | low-amplitude noise residual, **no sharp spectral peaks** (iterative denoising smooths them) | **weak -- hardest class** | ADM 0.82 (= SAFE's ceiling) |
+| Latent diffusion (LDM/SD/SDXL/MJ<=v6) | VAE **decoder** 8x-upsample artifacts, grid patterns, decoder-residual DCT signature | medium-strong | DRAGON 0.996 |
+| Autoregressive/VQ (DALLE-1/VQGAN/VQDM/Parti) | codebook quantization grid, token-boundary discontinuities | strong | VQDM 0.995 |
+| Flow/DiT (SD3/Flux/DALLE-3/Imagen-3/Firefly-4) | artifact suppression by design; converging to "no trace" | very weak | CF drops to 35-42%; NOT in organiser set |
+
+**The GAN/diffusion split** (Ojha): single-family training does not cross the
+gap. Two bridges: (1) CLIP semantic features (family-agnostic) -- our fusion,
++0.034 organiser; (2) **NPR** -- the local pixel-correlation residual left by
+*any* upsampling stage, transfers ProGAN->diffusion. We were not using (2);
+added as a precomputed radial-spectrum + spatial feature branch this sprint.
+
+### Real-image markers detectors rely on
+
+1/f^2 power-law spectrum; PRNU sensor noise (fixed per-sensor pattern);
+demosaicing/CFA inter-pixel correlation; device-specific JPEG quant tables.
+Implicit learned rule: "real = organic high-freq texture + correct noise
+correlation". **Failure mode:** reals from one distribution => model learns
+that distribution, not realness. Teammate flags **27% of camera-RAW reals**
+(RAISE-1k) as fake; our reals are 100% LAION/ImageNet/CelebA/COCO -> same
+blind spot. Mitigation: camera-native real slice (synthbuster-plus RAISE-1k).
+
+### Dataset shortcuts
+
+- **JPEG-vs-PNG format** ("Fake or JPEG?"): reals JPEG, fakes PNG -> detector
+  learns compression. Removing it = **+11pp cross-generator** on GenImage.
+  Our corpus is all re-saved 448px JPEG (both classes) -> shortcut_probe.py
+  confirms low metadata/dct_hf recoverability. Not poisoned on format.
+- Resolution: already killed (matched eval set, size-only AUC 0.500).
+
+### Field consensus
+
+- **Training-data alignment >> architecture** (2026 benchmark: 20-60%
+  variance within identical architectures from data alone). Our data-first
+  iteration order was right.
+- **Community Forensics = #1 open detector** (75% mean / 82% median, most
+  stable). Backbone choice validated.
+- **Hybrid/ensemble wins** -- ViT + CLIP + frequency is the right shape.
+- **Noise at train time** has a real mechanism ("suppresses semantic content
+  while exposing generation artifacts") -- we do this since iter3.
+
+### Forward moves this sprint (principled, not baseline-stacking)
+
+1. **NPR feature branch** -- the transferable low-level signal we lacked;
+   targets the ADM gap CLIP (semantic) cannot. Precomputed, fusion-trained.
+2. **Shortcut probe on training data** -- verify no format/re-encode poison.
+3. **Camera-native real slice** -- close the RAISE-1k FPR blind spot.
+
+Not doing: DIRE (needs a diffusion model at inference); CLIP-L (4x compute
+for marginal gain over CLIP-B); chasing SD3/Flux (not in the eval set --
+named as a limitation instead).

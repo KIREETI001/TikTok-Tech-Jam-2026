@@ -291,10 +291,32 @@ class HybridDetector(nn.Module):
             nn.Dropout(0.2),
             nn.Linear(64, 1),
         )
-        # Zero-init the last layer: freq_head(freq_embed) == 0 for any
-        # input at construction time, so forward() below starts out
-        # identical to the plain ViT detector -- see class docstring.
-        nn.init.zeros_(self.freq_head[-1].weight)
+        # Near-zero-init the last layer (NOT exactly zero -- see below) so
+        # freq_head(freq_embed) starts close to 0 for any input, meaning
+        # forward() below starts out close to the plain ViT detector -- see
+        # class docstring.
+        #
+        # A full 5-epoch/99k-image run (runs/mixed_hybrid_v1) came back with
+        # F1 completely flat (0.9405-0.9408) and train loss not decreasing --
+        # the branch was learning nothing. Diagnosed with a single
+        # forward/backward pass on a real batch: every upstream parameter
+        # (freq_branch.cnn.*, .radial_mlp.*, .project.*, freq_head[0]) had
+        # gradient EXACTLY 0.0 -- not small, exactly zero. An exact-zero
+        # weight on the last Linear multiplicatively gates the entire
+        # backward chain through it (d(loss)/d(earlier params) factors
+        # through this weight, which is 0), so nothing upstream can learn
+        # until this weight itself has moved away from zero -- which under
+        # lr=1e-5 with weight_decay=0.01 pulling it back every step, took
+        # 18,660 steps to reach only ~0.002 magnitude. The branch was
+        # effectively frozen for the whole run.
+        # Fix: initialize with a small but genuinely nonzero std so the
+        # gate isn't exactly closed -- gradients flow from step 1, while
+        # 1e-3 is small enough that the hybrid's initial predictions are
+        # still close to the ViT-only checkpoint's (unlike the original
+        # concat-fusion design's fresh Linear(257, 64), which distributed
+        # the ViT's one strong signal across 256 untrained dims instead of
+        # gating a correction term).
+        nn.init.normal_(self.freq_head[-1].weight, std=1e-3)
         nn.init.zeros_(self.freq_head[-1].bias)
 
     @classmethod

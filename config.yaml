@@ -3,8 +3,18 @@
 # dragon.py), or "mixed" (local + sid_set_stream + dragon concatenated --
 # the default; see experiments.md sections 5 and 7 for why).
 data_source: mixed
-sid_set_train_shards: 30
+# 100 shards (~83k images) up from 30 (~25k), with the local CIFAKE source
+# capped below. Measured 2026-08-29: Data/train is CIFAKE -- 99,080 images,
+# every one 32x32 from a single generator (SD 1.4) -- while every evaluation
+# set is 1024px from many generators. Uncapped, that made training ~80%
+# 7x-upscaled thumbnails from one generator. See experiments.md section 10.
+sid_set_train_shards: 100
 sid_set_val_shards: 1
+
+# Cap the 32x32 CIFAKE contribution so the pool is majority real-resolution.
+# 20k local + ~83k SID_Set puts high-resolution images at ~80% of training,
+# roughly inverting the previous ratio at similar total volume.
+local_max_train_images: 20000
 dragon_config: Regular
 # 0 for now: DRAGON has hit a persistent (not transient) DNS resolution
 # failure against the HF Hub in this environment across multiple full
@@ -23,12 +33,18 @@ dragon_shards: 0
 # fine-tuned on this task, so omitting this silently builds on a much
 # weaker base than the "already validated" model the hybrid design
 # assumes.
+#
+# Back to "vit" after the hybrid was measured twice and moved nothing:
+# runs/mixed_hybrid_v1 (branch structurally frozen by an exact-zero init) was
+# flat at F1 0.9405-0.9408 for 5 epochs, and runs/mixed_hybrid_v2 (init fixed,
+# gradients confirmed flowing) moved unseen SID_Set AUC by +0.00005 in a full
+# epoch. ziyangchua02 independently measured their FFT branch at 0.457 AUC on
+# unseen generators, below chance. Two negative results is enough.
 model_type: vit
-# model_type: hybrid
 # vit_checkpoint: runs/mixed_v2/best.pt
 
 data_dir: ../Data/train
-output_dir: runs/latest
+output_dir: runs/highres_v1
 
 seed: 2026
 validation_fraction: 0.20

@@ -221,6 +221,7 @@ def evaluate(
     *,
     records: Sequence[ImageRecord] | None = None,
     n_crops: int = 1,
+    crop_policy: str | None = None,
 ) -> dict[str, object]:
     """Evaluate a checkpoint on clean images and all 14 brief transformations.
 
@@ -231,6 +232,12 @@ def evaluate(
     ``n_crops=5`` averages each image's score over five crops instead of
     scoring one centre crop (see transforms._multi_crop_tail). It is
     inference-only, so it applies to checkpoints already trained.
+
+    ``crop_policy`` defaults to whatever the checkpoint recorded at training
+    time, and that default is the point: scoring a resize-trained model on
+    native crops (or the reverse) silently costs more AUC than most of the
+    changes being measured here, and nothing in the numbers would say so.
+    Pass it explicitly only to deliberately measure that mismatch.
     """
 
     _validate_loader_options(batch_size, num_workers)
@@ -247,6 +254,11 @@ def evaluate(
     cutoff = _threshold(metadata, threshold)
     model.eval()
 
+    # Checkpoints trained before crop_policy existed carry no such key; they
+    # were all trained under "resize", so that is the correct fallback.
+    resolved_crop_policy = crop_policy or metadata.get("crop_policy", "resize")
+    print(f"[EVALUATE] crop_policy={resolved_crop_policy} n_crops={n_crops}")
+
     metric_rows: list[dict[str, int | float | str | None]] = []
     all_errors: list[dict[str, object]] = []
     pin_memory = target_device.type == "cuda"
@@ -254,7 +266,9 @@ def evaluate(
     for condition in EVALUATION_CONDITIONS:
         dataset = ImageDataset(
             selected_records,
-            transform=build_eval_transform(condition, n_crops=n_crops),
+            transform=build_eval_transform(
+                condition, n_crops=n_crops, crop_policy=resolved_crop_policy
+            ),
             return_path=True,
         )
         loader = DataLoader(

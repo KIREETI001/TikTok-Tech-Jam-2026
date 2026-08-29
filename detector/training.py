@@ -134,6 +134,7 @@ def train_model(
     train_augment_probability: float = 0.7,
     model_type: str = "vit",
     vit_checkpoint: str | Path | None = None,
+    crop_policy: str = "resize",
 ) -> Path:
     """Fine-tune the detector on local-disk image records and return the
     best-F1 checkpoint path. Thin wrapper around
@@ -145,8 +146,10 @@ def train_model(
     if not train_records or not val_records:
         raise ValueError("Training and validation records must both be non-empty.")
 
-    train_dataset = ImageDataset(train_records, build_train_transform(train_augment_probability))
-    val_dataset = ImageDataset(val_records, build_eval_transform())
+    train_dataset = ImageDataset(
+        train_records, build_train_transform(train_augment_probability, crop_policy=crop_policy)
+    )
+    val_dataset = ImageDataset(val_records, build_eval_transform(crop_policy=crop_policy))
     return train_model_from_datasets(
         train_dataset,
         val_dataset,
@@ -165,6 +168,7 @@ def train_model(
         val_count=len(val_records),
         model_type=model_type,
         vit_checkpoint=vit_checkpoint,
+        crop_policy=crop_policy,
     )
 
 
@@ -187,6 +191,7 @@ def train_model_from_datasets(
     val_count: int | None = None,
     model_type: str = "vit",
     vit_checkpoint: str | Path | None = None,
+    crop_policy: str = "resize",
 ) -> Path:
     """Fine-tune the detector on pre-built, already-transformed datasets.
 
@@ -293,6 +298,11 @@ def train_model_from_datasets(
                         "f1": metrics["f1"],
                         "validation_metrics": metrics,
                         "seed": seed,
+                        # Recorded so evaluation and inference reproduce this
+                        # run's preprocessing without being told. Showing a
+                        # model a different crop policy than it trained on
+                        # costs real AUC and produces no warning.
+                        "crop_policy": crop_policy,
                     },
                 )
 

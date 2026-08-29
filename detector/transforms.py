@@ -111,38 +111,100 @@ class _ApplyCondition:
         return apply_condition(image, self.condition, seed=self.seed)
 
 
-def _native_tail() -> list:
-    """Community Forensics: short edge 256, center crop 224, ImageNet norm."""
+CROP_POLICIES: Final = ("resize", "native")
+
+
+class _UpscaleIfSmall:
+    """Scale up, preserving aspect ratio, only when an image is smaller than
+    the crop window. The one case where resampling is unavoidable.
+
+    Everything larger is left completely untouched -- that is the whole
+    point of the ``native`` crop policy (see ``_geometry``).
+    """
+
+    def __init__(self, size: int = 224) -> None:
+        self.size = size
+
+    def __call__(self, image: Image.Image) -> Image.Image:
+        width, height = image.size
+        if min(width, height) >= self.size:
+            return image
+        scale = self.size / min(width, height)
+        return image.resize(
+            (max(self.size, round(width * scale)), max(self.size, round(height * scale))),
+            Image.Resampling.BILINEAR,
+        )
+
+
+def _geometry(crop_policy: str) -> list:
+    """The resize/crop stage, shared by training and evaluation so the two
+    cannot drift apart.
+
+    ``resize`` (the original Community Forensics recipe): short edge to 256,
+    then a 224 crop. Every image is resampled.
+
+    ``native``: no resampling at all above 224px -- crop the 224 window
+    straight out of the image at its own resolution.
+
+    Why ``native`` is worth having, from two independent measurements:
+
+    - ziyangchua02/model_training found resampling low-pass filters the top
+      octave, which is exactly where generator fingerprints live, and that a
+      fixed resize rule degrades sources unevenly by native resolution
+      (their high-resolution generators were blurred while their 1024px ones
+      were not, and the blurred ones then scored worst).
+    - Our own shortcut probe (scripts/shortcut_probe.py) found the resize
+      also makes the corpus *more* trivially separable, consistently across
+      all three corpora: PS5 train 72.60% -> 74.47%, PS5 test 74.93% ->
+      76.93%, SID_Set 54.93% -> 57.80%, with edge_std's importance roughly
+      doubling. Normalising every image to one scale turns edge density into
+      a cleanly comparable smoothness measure; at native resolution the same
+      feature is confounded with the image's own resolution and is a weaker
+      shortcut.
+
+    So the two policies differ on both axes at once -- ``native`` keeps more
+    fingerprint signal AND leaks less shortcut -- which is why this is a
+    policy to measure rather than a constant to flip.
+    """
+
+    if crop_policy not in CROP_POLICIES:
+        raise ValueError(
+            f"Unknown crop_policy {crop_policy!r}; choose from {', '.join(CROP_POLICIES)}"
+        )
+    if crop_policy == "resize":
+        return [T.Resize(256, interpolation=InterpolationMode.BILINEAR)]
+    return [_UpscaleIfSmall(224)]
+
+
+def _native_tail(crop_policy: str = "resize") -> list:
+    """Geometry, then a centre 224 crop, then ImageNet normalization."""
 
     return [
-        T.Resize(256, interpolation=InterpolationMode.BILINEAR),
+        *_geometry(crop_policy),
         T.CenterCrop(224),
         T.ToTensor(),
         T.Normalize(IMAGENET_MEAN, IMAGENET_STD),
     ]
 
 
-def _multi_crop_tail() -> list:
-    """Five 224 crops (centre + four corners) of the 256-resized image,
-    returned stacked as (5, C, H, W) for score averaging at evaluation time.
+def _multi_crop_tail(crop_policy: str = "resize") -> list:
+    """Five 224 crops (centre + four corners), stacked as (5, C, H, W) for
+    score averaging at evaluation time.
 
-    Ported from ziyangchua02/model_training's ``prepare_crops``, whose
-    rationale is that a single 224px window onto a large image sees a small
-    fraction of it -- so one crop's score is a high-variance sample of what
-    the model thinks about the whole image.
+    Ported from ziyangchua02/model_training's ``prepare_crops``: a single
+    224px window onto a large image sees a small fraction of it, so one
+    crop's score is a high-variance sample of what the model thinks about
+    the whole image.
 
-    Note the difference from their version: theirs crops at *native*
-    resolution, because their corpus is stored that way. Ours still resizes
-    the short edge to 256 first, exactly as ``_native_tail`` does, so the
-    five crops overlap heavily and this buys less than it does for them.
-    That is deliberate -- cropping at native resolution here would show the
-    model a different input distribution than it was trained on, and their
-    own row 0b measured that train/inference mismatch costing 0.069 AUC.
-    Native-resolution crops only become correct once training matches.
+    How much this buys depends entirely on ``crop_policy``. Under
+    ``resize`` the image has already been squeezed to a 256 short edge, so
+    five 224 windows overlap almost completely and add little. Under
+    ``native`` they are five genuinely different regions of a full-resolution
+    image, which is the case their result was measured in.
     """
 
     return [
-        T.Resize(256, interpolation=InterpolationMode.BILINEAR),
+        *_geometry(crop_policy),
         T.FiveCrop(224),
         T.Lambda(
             lambda crops: torch.stack(
@@ -153,13 +215,18 @@ def _multi_crop_tail() -> list:
 
 
 def build_eval_transform(
-    condition: str = "clean", *, seed: int = 0, n_crops: int = 1
+    condition: str = "clean", *, seed: int = 0, n_crops: int = 1, crop_policy: str = "resize"
 ) -> T.Compose:
-    """Build native preprocessing preceded by one fixed evaluation condition.
+    """Build model preprocessing preceded by one fixed evaluation condition.
 
     ``n_crops=5`` switches from a single centre crop to five crops stacked on
     a leading dimension; the caller averages the per-crop scores (see
     detector.evaluation._probabilities).
+
+    ``crop_policy`` must match whatever the checkpoint was trained with --
+    see _geometry. Scoring a resize-trained model on native crops (or the
+    reverse) pays a train/inference mismatch their row 0b measured at 0.069
+    AUC, which is larger than most of the gains being chased here.
     """
 
     if condition not in EVALUATION_CONDITIONS:
@@ -167,7 +234,7 @@ def build_eval_transform(
         raise ValueError(f"Unknown evaluation condition {condition!r}; choose from {choices}")
     if n_crops not in (1, 5):
         raise ValueError(f"n_crops must be 1 or 5, got {n_crops}.")
-    tail = _native_tail() if n_crops == 1 else _multi_crop_tail()
+    tail = _native_tail(crop_policy) if n_crops == 1 else _multi_crop_tail(crop_policy)
     return T.Compose([_ApplyCondition(condition, seed), *tail])
 
 
@@ -223,18 +290,22 @@ class _RandomRobustnessAugment:
         return result
 
 
-def build_train_transform(augment_probability: float = 0.7) -> T.Compose:
-    """Native-sized preprocessing with realistic-corruption augmentation
-    (see _RandomRobustnessAugment) plus a small amount of common
-    augmentation. Pass ``augment_probability=0.0`` to disable the
-    corruption augmentation entirely (e.g. for a fast, deterministic-ish
-    smoke test).
+def build_train_transform(
+    augment_probability: float = 0.7, *, crop_policy: str = "resize"
+) -> T.Compose:
+    """Model preprocessing with realistic-corruption augmentation (see
+    _RandomRobustnessAugment) plus a small amount of common augmentation.
+    Pass ``augment_probability=0.0`` to disable the corruption augmentation
+    entirely (e.g. for a fast, deterministic-ish smoke test).
+
+    ``crop_policy`` must match what evaluation and inference will use --
+    see _geometry and build_eval_transform.
     """
 
     return T.Compose(
         [
             _RandomRobustnessAugment(augment_probability),
-            T.Resize(256, interpolation=InterpolationMode.BILINEAR),
+            *_geometry(crop_policy),
             T.RandomCrop(224),
             T.RandomHorizontalFlip(),
             T.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),

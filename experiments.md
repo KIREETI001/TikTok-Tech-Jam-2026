@@ -923,12 +923,45 @@ mechanism the teammate showed makes a shallow branch memorise
 training-generator spectra and invert on unseen ones; ours trains on the
 final BCE only.
 
-CLIP-L pre-flighted clean on XPU (SYCL kernels cache fine). Sprint config:
-warm-start `runs/iter4/best.pt`, `branch_kind: clip`, ViT frozen, bs 40,
-`samples_per_epoch` 10000, 4 epochs, `lr 2e-4` (tiny head, few steps),
-SAFE aug + crop-from-native. `bash run_fast.sh iter6` (lean: calibrate +
-organiser + dragon_unseen only). Expected organiser Final Score
-0.9126 -> ~0.94-0.97.
+CLIP-L pre-flighted clean on XPU but **~6 s/training-step on the iGPU** --
+too slow for the sprint (killed 3 attempts confirming slow, not hung).
+Pivoted to **CLIP ViT-B/16** (~2 s/step) and then to the fusion-head path
+below.
+
+### 9m. iter7 -- CLIP fusion trained on precomputed frozen features
+
+CLIP-live in the training loop is unaffordable on this iGPU. Instead:
+precompute, per image, the iter4 ViT logit + the frozen CLIP-B/16 embedding
+(clean view, 30k-subsampled train + all eval sets), then train ONLY the
+~200k-param fusion head (`LayerNorm(768) -> Linear(768,256) -> 64 -> 1`) on
+the cached vectors -- seconds per config. This is the teammate's own method
+(train the fusion over frozen branches). Winner baked into a real
+`HybridDetector` (iter4 ViT + trained CLIP branch), `runs/iter7/best.pt`.
+
+Head selected on DRAGON genval (held-out generators). Calibrated threshold
+**0.240** (minmax_fpfn): genval AUC 0.9988 (FPR 1.4 / FNR 1.3), calval
+0.9977 (FPR 1.4 / FNR 2.2) -- CLIP fusion tightened latent-diffusion error
+rates below iter4's.
+
+**Organiser clean AUC 0.908 -> 0.939 (+0.031)**, genval-selected. NPR
+radial-spectrum feature added and tested: **no help** (0.905 vs 0.908) --
+confirms the literature that hand-crafted frequency features do not bridge
+to pixel-space diffusion (ADM/DDPM have no sharp spectral peaks, Corvi
+2023); the SAFE DWT works only as a deep end-to-end conv, not spectrum +
+linear head. Dropped NPR.
+
+**Shortcut probe on the training corpus** (`detector.shortcut_probe`):
+iter4_train pixel 60.4% / dct_hf 52.5%, cf_small 61.9% / 56.1% -- both
+below the ~65% off-task line. The corpus is NOT format/compression
+poisoned; the "+11 pp from removing JPEG-vs-PNG bias" (Fake or JPEG?,
+ECCV 2024) does not apply because both classes are re-saved 448px JPEG.
+Organiser eval set: pixel 66.6% -- that is the eval set's own property
+(WildFake fakes genuinely smoother than COCO reals), not ours to fix.
+
+Full 15-condition Final Score: _pending the per-condition feature cache_
+(`scratchpad/precompute_eval15.py`, exact `build_eval_transform` so it is
+comparable to `pipeline.py evaluate`; vit-only from the same cache should
+reproduce iter4's 0.9126 as the validation).
 
 ### 9g. Literature review + briefing deck (RESEARCH_SYNTHESIS.md)
 

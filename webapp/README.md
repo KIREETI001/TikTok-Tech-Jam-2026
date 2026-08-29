@@ -1,29 +1,31 @@
 # webapp — local demo
 
-Upload an image, get a verdict, and see it **re-checked under the challenge's
-redistribution transforms** (JPEG q30, blur σ2, noise σ0.1, resize 0.25×).
-That strip is the point: the brief scores robustness, so the demo shows it.
+Upload an image, get a calibrated P(AI), and see it re-scored under **every
+one of the brief's 15 evaluation conditions** — the half of the score a
+clean-only demo can't show.
 
 ## Run
 
 ```bash
-CHECKPOINT=runs/iter4/best.pt python webapp/server.py
+pip install fastapi uvicorn
+DETECTOR_CHECKPOINT=runs/iter7/best.pt uvicorn webapp.server:app --port 8000
 # open http://localhost:8000
 ```
 
-Env vars: `CHECKPOINT` (default `runs/iter4/best.pt`), `PORT` (8000),
-`DEVICE` (`auto` → XPU/CUDA/CPU). Point `CHECKPOINT` at the hybrid checkpoint
-once it's baked.
+Env: `DETECTOR_CHECKPOINT` (default `runs/latest/best.pt`), `DETECTOR_DEVICE`
+(`auto` → XPU/CUDA/CPU), `ALLOW_ORIGINS`.
 
-## What it is
+## Endpoints
 
-- `server.py` — stdlib `http.server`, no framework. Loads the checkpoint once,
-  reuses the pipeline's exact preprocessing (`build_eval_transform`),
-  probability head (`_probabilities`), and calibrated threshold (from the
-  checkpoint metadata). `/predict?condition=<name>` applies one of the 15
-  evaluation transforms before inference.
-- `index.html` — one self-contained page, no build step, no external requests,
-  theme-aware.
+| route | returns |
+|---|---|
+| `GET /` | the single-page UI |
+| `GET /health` | checkpoint path, device, model type, calibrated threshold |
+| `POST /predict` | `{p_ai, p_authentic, threshold}` for one image |
+| `POST /predict/robust` | `p_ai` under each of the 15 conditions + the spread |
 
-Binds `127.0.0.1` only — a local tool, not a deployment (the brief puts
-production deployment out of scope).
+`server.py` reuses `detector.evaluation._probabilities` and
+`detector.transforms.build_eval_transform` / `apply_condition` — the same code
+the offline evaluation runs, so the page and the metrics table can't drift.
+One file, no auth, no database (slide 15: "over-engineering the UI" is a
+rabbit hole; slide 13: complexity that threatens the demo isn't worth it).

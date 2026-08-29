@@ -196,6 +196,7 @@ def _train(
         val_count=info["val_count"],
         model_type=str(settings.get("model_type", "vit")),
         vit_checkpoint=settings.get("vit_checkpoint"),
+        crop_policy=str(settings.get("crop_policy", "resize")),
     )
     saved_parameter_count = torch.load(checkpoint, map_location="cpu", weights_only=True)["metadata"][
         "parameter_count"

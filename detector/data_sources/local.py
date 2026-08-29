@@ -65,9 +65,22 @@ def ingest(settings: dict[str, Any]) -> tuple[Dataset, Dataset, dict[str, Any]]:
     # a 4M-image baseline, and Community Forensics measured generalization
     # tracking generator *count* rather than image count. Both say a smaller,
     # more representative pool is the better trade.
+    # The cap applies to validation too, at the same ratio. Capping only
+    # training would leave validation ~54% CIFAKE while training is ~23% --
+    # and validation F1 is what selects the checkpoint, so the run would
+    # optimise for the 32x32 distribution this cap exists to move away from.
+    # That is exactly the selection-metric failure ziyangchua02 documented:
+    # picking checkpoints on a split that does not resemble what you are
+    # scored on. Keeping one ratio for both keeps the two comparable.
     max_train = settings.get("local_max_train_images")
     if max_train:
-        train_records = _balanced_subset(train_records, int(max_train), int(settings.get("seed", 2026)))
+        seed = int(settings.get("seed", 2026))
+        original_train = len(train_records)
+        train_records = _balanced_subset(train_records, int(max_train), seed)
+        if original_train:
+            keep_ratio = len(train_records) / original_train
+            train_records_val_limit = max(2, round(len(val_records) * keep_ratio))
+            val_records = _balanced_subset(val_records, train_records_val_limit, seed)
 
     augment_probability = float(settings.get("train_augment_probability", 0.7))
     crop_policy = str(settings.get("crop_policy", "resize"))

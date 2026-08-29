@@ -16,7 +16,7 @@ tabulated in [`TRAINING_REPORT.docx`](TRAINING_REPORT.docx).
 
 | Benchmark | Final Score | Clean AUC | Robust AUC | Clean FPR / FNR |
 |---|---|---|---|---|
-| **Organiser composition** (WildFake pixel-diffusion + COCO, resolution-matched) | **_pending iter6_** / 0.9126 | 0.9286 | 0.8965 | 5.9% / 24.8% |
+| **Organiser composition** (WildFake pixel-diffusion + COCO, resolution-matched) | **0.927** | 0.953 | 0.900 | 3.9% / 7.5% |
 | DRAGON — 8 unseen latent-diffusion generators | 0.9959 | 0.9972 | 0.9945 | 2.1% / 2.4% |
 | SID_Set full-synthetic (in-domain) | 0.997 | 0.9985 | 0.9963 | 2.1% / 0.9% |
 
@@ -24,34 +24,36 @@ The organiser composition's six generator families (ADM, DALL·E, DDIM, DDPM,
 Imagen, VQDM) have **zero representation in training** — it is a genuine
 cross-generator test, not a held-out split of the training distribution.
 
-Per-generator clean AUC on the organiser set: ADM 0.82 · DDPM 0.90 ·
-DDIM 0.92 · Imagen 0.95 · DALL·E 0.99 · VQDM 0.99.
+Per-generator clean AUC on the organiser set: ADM 0.90 · DDPM 0.92 ·
+DDIM 0.94 · Imagen 0.98 · DALL·E 0.99 · VQDM 0.996 (ViT-only: ADM 0.82).
 
 ---
 
 ## Model
 
 ```
-Community Forensics ViT-S/16 @224   21,666,049 params   (frozen after warm-start)
-  └─ base logit
-  + frozen OpenAI CLIP ViT-B/16 branch    → LayerNorm → Linear → zero-init residual head
-  + SAFE DWT high-frequency branch         → conv stem → zero-init residual head   (optional)
-  ────────────────────────────────────────────────────────────────────
-  logit = base + Σ branch corrections
+Community Forensics ViT-S/16 @224   21,666,049 params   (frozen after warm-start)  → base logit
+  + frozen OpenAI CLIP ViT-B/16 branch   → LayerNorm → Linear(768→256) → zero-init residual Δ
+                                logit = base + Δ
 ```
+
+The CLIP branch is trained ONLY as a ~200K-param fusion head on precomputed
+frozen features (`scratchpad/train_fusion.py` / `score_report.py`) — the CLIP
+forward is too slow to run live in the training loop on an Arc iGPU. A SAFE
+DWT branch and a hand-crafted NPR frequency branch were built and tested;
+neither transferred to pixel-space diffusion, so the shipped model is
+ViT + CLIP only. `branch_kind` still accepts `clip,wavelet,fft` comma lists.
 
 - **Backbone**: `OwensLab/commfor-model-224` (timm `vit_small_patch16_224.augreg_in21k_ft_in1k`).
   A purpose-built AI-image detector, #1 of 23 on its own benchmark out-of-the-box.
 - **Semantic branch**: `openai/clip-vit-base-patch16` vision tower, **frozen** (ViT-L/14 was ~6x slower on the Arc iGPU for a marginal gain).
   A fine-tuned backbone loses ~0.20 AUC seen→unseen; a frozen large ViT loses
   ~0.09 — freezing is what makes it generalise.
-- **Frequency branch** (SAFE, KDD 2025): input is the DWT `bior1.3` diagonal
-  detail sub-band, not RGB — a *local* frequency statistic that survives crops.
 - **Zero-init residual fusion**: each branch head starts at 0, so the model
   begins identical to the proven ViT and only ever adds a correction. No
   per-branch auxiliary loss (that pressure makes a shallow branch memorise
   training-generator spectra and invert on unseen ones).
-- Trainable parameters: ~0.3–0.6M. Total inference: ~108M (ViT-S 22M + frozen CLIP-B 86M) — ~18x under the 2B limit.
+- Trainable parameters: ~200K (the fusion head). Total inference: ~108M (ViT-S 22M + frozen CLIP-B 86M) — ~18x under the 2B limit.
   Runs on CPU at ~1 s/image.
 
 ---

@@ -16,7 +16,7 @@ tabulated in [`TRAINING_REPORT.docx`](TRAINING_REPORT.docx).
 
 | Benchmark | Final Score | Clean AUC | Robust AUC | Clean FPR / FNR |
 |---|---|---|---|---|
-| **Organiser composition** (WildFake pixel-diffusion + COCO, resolution-matched) | **0.927** | 0.953 | 0.900 | 4.3% / 22.9% * |
+| **Organiser composition** (WildFake pixel-diffusion + COCO, resolution-matched) | **0.933** | 0.955 | 0.911 | 4.1% / 23.3% * |
 | DRAGON — 8 unseen latent-diffusion generators | 0.9959 | 0.9972 | 0.9945 | 2.1% / 2.4% |
 | SID_Set full-synthetic (in-domain) | 0.997 | 0.9985 | 0.9963 | 2.1% / 0.9% |
 
@@ -25,7 +25,7 @@ Imagen, VQDM) have **zero representation in training** — it is a genuine
 cross-generator test, not a held-out split of the training distribution.
 
 \* The Final Score is threshold-free (ROC-AUC). The FPR/FNR are at the
-operating threshold 0.240, calibrated on withheld *latent-diffusion*
+operating threshold 0.215, calibrated on withheld *latent-diffusion*
 generators — pixel-diffusion fakes score systematically lower, so a single
 fixed threshold under-flags them (the same threshold is 2.1%/2.4% on DRAGON).
 No one cutoff serves both families; the calibration recipe is shipped so

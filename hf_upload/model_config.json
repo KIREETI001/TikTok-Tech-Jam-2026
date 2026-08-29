@@ -1,0 +1,17 @@
+{
+  "model_id": "OwensLab/commfor-model-224",
+  "architecture": "vit_small_patch16_224.augreg_in21k_ft_in1k",
+  "model_type": "hybrid",
+  "branch_kind": "clip",
+  "clip_model": "vit_base_patch16_clip_224.openai",
+  "parameter_count": 107680386,
+  "threshold": 0.215,
+  "threshold_rule": "minmax_fpfn",
+  "positive_label": "fake",
+  "input": {
+    "size": 224,
+    "normalize": "imagenet",
+    "preprocess": "resize short-edge 256 (bilinear), center-crop 224"
+  },
+  "final_score_organiser": 0.9326
+}

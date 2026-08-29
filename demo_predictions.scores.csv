@@ -1,0 +1,7 @@
+image_path,probability_ai,confidence
+fake_ADM_hard.jpg,0.068919,0.931081
+fake_DALLE.jpg,0.997923,0.997923
+fake_latentdiff_0.jpg,0.999994,0.999994
+fake_latentdiff_1.jpg,0.994909,0.994909
+real_0.jpg,0.000018,0.999982
+real_1.jpg,0.000000,1.000000

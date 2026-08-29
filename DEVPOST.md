@@ -21,7 +21,7 @@ AUC(robust) is the mean over the 14 required transform conditions.
 
 | Held-out benchmark | Final Score | Clean AUC | Robust AUC |
 |---|---|---|---|
-| **Organiser composition** (WildFake pixel-diffusion + COCO, resolution-matched) | **0.927** | 0.953 | 0.900 |
+| **Organiser composition** (WildFake pixel-diffusion + COCO, resolution-matched) | **0.933** | 0.955 | 0.911 |
 | DRAGON — 8 unseen latent-diffusion generators | 0.996 | 0.997 | 0.995 |
 | SID_Set full-synthetic (in-domain) | 0.997 | 0.999 | 0.996 |
 
@@ -120,7 +120,8 @@ unseen fakes from ~25% to ~98% with zero change to AUC. Calibrated threshold:
 | **Drop tampered images** | in-domain 0.94 → 0.999 |
 | **+ 17 DRAGON generators + held-out calibration** | unseen FNR 18.8% → 1.4% |
 | **+ Community-Forensics-Small (data diversity)** | 0.717 → 0.804 → **0.913** |
-| **+ frozen CLIP-B semantic branch** | 0.913 → **0.927** |
+| **+ frozen CLIP-B semantic branch** | 0.913 → 0.927 |
+| **+ feature-jitter head training** (simulates CLIP’s degradation shift) | 0.927 → **0.933** |
 
 Two of the three biggest levers were **data, not architecture** — matching
 the field consensus (a 2026 benchmark found 20–60% accuracy variance within
@@ -134,9 +135,10 @@ the field consensus (a 2026 benchmark found 20–60% accuracy variance within
   out of training. A detector tuned on them scores higher here and breaks on
   the next generator. We optimised for the break.
 - **Semantic gain vs robust transfer.** The CLIP branch adds +0.025 clean
-  AUC but only +0.003 robust — CLIP embeddings shift under degradation
-  (cos-sim drops to ~0.8 under heavy JPEG/noise). Training the fusion on
-  degraded-view embeddings recovers most of it.
+  AUC but the robust half lagged — CLIP embeddings shift under degradation
+  (cos-sim drops to ~0.8 under heavy JPEG/noise). We measured that shift and
+  trained the fusion head with gaussian feature-jitter calibrated to it,
+  recovering the robust half from 0.900 to 0.911 (jpeg-q30 and noise-σ0.10 each +0.02).
 - **Single threshold vs generator spread.** Pixel-diffusion fakes get lower
   AI-scores than latent-diffusion fakes; no one cutoff is optimal for both.
   We report the threshold-free score and ship the calibration recipe.

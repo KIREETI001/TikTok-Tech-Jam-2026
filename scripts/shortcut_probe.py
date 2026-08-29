@@ -157,12 +157,47 @@ def metadata_features(records: list[ImageRecord]) -> tuple[np.ndarray, list[str]
     return np.array(rows, dtype=np.float64), names
 
 
-def pixel_features(records: list[ImageRecord]) -> tuple[np.ndarray, list[str]]:
-    """Statistics of the exact 224px crop the model is fed."""
+def pixel_features(
+    records: list[ImageRecord], *, policy: str = "native_crop"
+) -> tuple[np.ndarray, list[str]]:
+    """Statistics of the 224px crop a detector would actually be fed.
+
+    ``policy`` picks which preprocessing to measure, and the distinction is
+    the whole point of running this twice:
+
+    ``native_crop``  -- centre-crop 224 at the image's own resolution, no
+        resampling. This is ziyang's policy and what Phase 4 proposes. It is
+        also the honest way to measure the *corpus*, since resizing to a
+        common size resamples every image by an amount that depends on its
+        original resolution, changing edge density and compressibility --
+        which would make the probe partly measure the resize.
+
+    ``pipeline``  -- Resize(short edge 256) then CenterCrop(224), i.e. what
+        detector/transforms.py currently feeds the model. Measuring this
+        answers a different and equally necessary question: not "what
+        shortcuts does the corpus contain" but "what shortcuts survive our
+        preprocessing and reach the model today".
+
+    A corpus can leak heavily under one and not the other, and reporting
+    only one of them would misattribute the difference.
+    """
+    if policy not in ("native_crop", "pipeline"):
+        raise ValueError(f"policy must be 'native_crop' or 'pipeline', got {policy!r}.")
+
     rows = []
     for record in records:
         with Image.open(record.path) as source:
             image = source.convert("RGB")
+
+            if policy == "pipeline":
+                # Mirror transforms._native_tail: short edge to 256, bilinear.
+                width, height = image.size
+                scale = 256 / min(width, height)
+                image = image.resize(
+                    (max(1, round(width * scale)), max(1, round(height * scale))),
+                    Image.Resampling.BILINEAR,
+                )
+
             width, height = image.size
             if min(width, height) < CROP:
                 scale = CROP / min(width, height)
@@ -257,14 +292,20 @@ def main() -> int:
 
     y = np.array([r.label for r in records])
     meta_X, meta_names = metadata_features(records)
-    pixel_X, pixel_names = pixel_features(records)
+    native_X, pixel_names = pixel_features(records, policy="native_crop")
+    pipeline_X, _ = pixel_features(records, policy="pipeline")
 
     result = {
         "corpus": label,
         "root": args.root,
         "n_images": len(records),
-        "metadata_probe": run_probe("metadata (pre-preprocessing)", meta_X, y, meta_names),
-        "pixel_probe": run_probe("pixel stats (what the model sees)", pixel_X, y, pixel_names),
+        "metadata_probe": run_probe("metadata (never reaches the model)", meta_X, y, meta_names),
+        "pixel_probe_native_crop": run_probe(
+            "pixels, native crop (the corpus itself)", native_X, y, pixel_names
+        ),
+        "pixel_probe_pipeline": run_probe(
+            "pixels, resize+crop (what reaches the model today)", pipeline_X, y, pixel_names
+        ),
     }
 
     if args.out:

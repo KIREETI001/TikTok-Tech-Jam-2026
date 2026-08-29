@@ -200,11 +200,30 @@ def _fetch_csv_rows(client: httpx.Client, path: str) -> list[dict[str, str]]:
     return list(reader)
 
 
-def _sample_image_paths(rows: list[dict[str, str]], count: int, seed: int) -> list[str]:
+def _sample_image_paths(
+    rows: list[dict[str, str]], count: int, seed: int, *, is_fake: str
+) -> list[str]:
+    """Sample `count` image paths of one class from a WildFake split CSV.
+
+    The ``is_fake`` filter is load-bearing, not defensive. WildFake's
+    per-architecture test CSVs are *pre-mixed*: ADM_test.csv carries 31,005
+    fake rows and 15,503 real ones (their repo has add_real_cross_*.py
+    scripts that append a real set to each). Sampling without filtering
+    silently drew ~1/3 real images into the fake half -- those were skipped
+    rather than mislabelled, because they live in a different zip, so the
+    only visible symptom was a stream of "not found in ADM.zip" warnings and
+    a fake sample quietly ~35% smaller than requested.
+    """
     rng = random.Random(seed)
-    pool = [row["Image_path"].lstrip("./") for row in rows]
+    pool = [
+        row["Image_path"].lstrip("./")
+        for row in rows
+        if row.get("IsFake", "").strip() == is_fake
+    ]
     if len(pool) < count:
-        raise ValueError(f"Only {len(pool)} rows available, need {count}.")
+        raise ValueError(
+            f"Only {len(pool)} rows with IsFake={is_fake} available, need {count}."
+        )
     return rng.sample(pool, count)
 
 
@@ -216,6 +235,37 @@ def _extract_images(
     label: int,
 ) -> list[ImageRecord]:
     dest_dir.mkdir(parents=True, exist_ok=True)
+
+    def _cache_path(member: str) -> Path:
+        return dest_dir / (hashlib.sha256(member.encode()).hexdigest()[:16] + Path(member).suffix)
+
+    # Reuse anything already extracted. Pulling 1,000 images out of a 2.3GB
+    # remote zip takes ~55 minutes of range requests, and re-running the
+    # script after an unrelated fix should not pay that again. The filename
+    # is a hash of the member path, so a file that is present is necessarily
+    # the right image. Checked before opening the archive, so a fully cached
+    # set touches the network zero times.
+    records: list[ImageRecord] = []
+    outstanding: list[str] = []
+    for member in member_paths:
+        cached = _cache_path(member)
+        if cached.exists() and cached.stat().st_size > 0:
+            records.append(
+                ImageRecord(
+                    path=cached,
+                    label=label,
+                    sha256=hashlib.sha256(cached.read_bytes()).hexdigest(),
+                    split="wildfake_eval",
+                )
+            )
+        else:
+            outstanding.append(member)
+
+    if records:
+        print(f"    reused {len(records)} cached, fetching {len(outstanding)}")
+    if not outstanding:
+        return records
+
     remote = _BufferedHTTPRangeFile(client, _file_url(zip_path))
     with zipfile.ZipFile(remote) as archive:
         names = set(archive.namelist())
@@ -228,15 +278,14 @@ def _extract_images(
         # backwards -- which matters when one full run is ~2,000 range reads
         # over multi-GB archives.
         offsets = {}
-        for member in member_paths:
+        for member in outstanding:
             try:
                 offsets[member] = archive.getinfo(member).header_offset
             except KeyError:
                 offsets[member] = 0
-        member_paths = sorted(member_paths, key=lambda m: offsets[m])
+        outstanding = sorted(outstanding, key=lambda m: offsets[m])
 
-        records: list[ImageRecord] = []
-        for member in member_paths:
+        for member in outstanding:
             if member not in names:
                 # WildFake's zip members are occasionally stored with a
                 # leading "./" the CSV strips or a different case; try both
@@ -284,7 +333,9 @@ def main() -> int:
     ) as client:
         print("[WILDFAKE] fetching real_coco.csv ...")
         real_rows = _fetch_csv_rows(client, REAL_CSV)
-        real_paths = _sample_image_paths(real_rows, args.real_count, seed=args.seed)
+        real_paths = _sample_image_paths(
+            real_rows, args.real_count, seed=args.seed, is_fake="0"
+        )
         print(f"[WILDFAKE] extracting {len(real_paths)} real COCO images (this is the slow step; single zip)")
         real_records = _extract_images(client, REAL_ZIP, real_paths, cache_dir / "real", label=0)
 
@@ -292,7 +343,9 @@ def main() -> int:
         for name, (zip_path, csv_path) in FAKE_GENERATORS.items():
             print(f"[WILDFAKE] fetching {name} test-split CSV ...")
             rows = _fetch_csv_rows(client, csv_path)
-            paths = _sample_image_paths(rows, args.per_generator, seed=args.seed)
+            paths = _sample_image_paths(
+                rows, args.per_generator, seed=args.seed, is_fake="1"
+            )
             print(f"[WILDFAKE] extracting {len(paths)} {name} images ...")
             per_generator_records[name] = _extract_images(client, zip_path, paths, cache_dir / name, label=1)
 

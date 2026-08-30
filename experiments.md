@@ -1203,3 +1203,103 @@ itself as unvalidated ("wasn't validated in the time available"), its
 needs, and it specifies 25 training epochs on a heavier architecture versus
 Community Forensics' 5 light-fine-tune epochs -- a much larger compute
 budget on a 4GB laptop GPU for an unproven design. Confirmed by ziyangchua02.
+
+## 13. Iteration 5a -- no warm start, local corpus, crop_from_native + SAFE
+
+**Blocker found before this could run**: `runs/iter4/best.pt` (the merge's
+apparent starting point, organiser Final Score 0.9126 per the teammate's
+own log) does not actually exist anywhere reachable. Despite a commit
+message reading "Track model checkpoints in git", `.gitignore` excludes
+`runs/` and `*.pt`/`*.pth` -- confirmed absent on this device after the
+merge. `scratchpad/build_iter4.py` (their corpus builder) was likewise
+never committed, same convention as this project's own scratchpad/.
+
+**Response**: rebuilt the corpus locally (`scripts/build_iter5_corpus.py`)
+from the teammate's *documented* recipe (experiments.md 9d/9g) rather than
+their uncommitted script -- streams SID_Set shards 0-29 (raw label kept, so
+label 2/tampered is dropped rather than folded into fake, matching
+"full_synthetic only"), all 25 DRAGON generators split 17 train / 8 held
+out (their exact held-out set: Flux_1, IF, JuggernautXL, Kolors,
+PixArt_Sigma, SDXL_Turbo, SD_3, SD_Cascade), plus GenImage ADM + GLIDE
+(2,500 each) for the pixel-space diffusion gap section 11 measured. Not
+Community-Forensics-Small: its auto-converted HF export was found too
+small/uncertain (~10.5k rows, not the ~30k reported, shard 0 100% one
+architecture) to depend on without more reconnaissance time than an
+overnight run allowed.
+
+Verified against the teammate's own reported numbers before trusting it:
+SID_Set train landed at real=8,409 / fake=8,415, an exact match to their
+documented iter3_train counts. DRAGON holdout landed at fake=1,312, an
+exact match to their documented dragon_holdout_eval count. Final corpus:
+train real=8,409 fake=16,203 (24,612 total), dragon_holdout real=554
+fake=1,312.
+
+**Sequenced as vit-only first** (this section), hybrid+wavelet second
+(iteration 5b) once this run's own checkpoint exists to warm-start from --
+matches section 8's finding that a frequency/wavelet branch needs an
+already-validated ViT base, not a fresh pretrained one.
+
+**Config**: `data_source: local`, the corpus above, `crop_from_native:
+true`, `safe_augment: true`, `select_metric: roc_auc`, `balance_classes:
+true`, `lr_schedule: cosine`, 10 epochs, batch 16, lr 2e-5, num_workers 4
+(dropped from the teammate's 8 -- their number was tuned for a streamed-
+source constraint that does not apply to `data_source: local`, and this
+project's own earlier num_workers benchmark on this machine found
+diminishing returns past a few workers).
+
+Trained cleanly: val ROC-AUC 0.9668 -> 0.9866 (epoch 7, best) -> 0.9864
+(epoch 10), no divergence, no crash. ~17 min/epoch, ~3h total.
+
+### Results -- and a second correction to section 11's headline
+
+Before trusting any comparison, rebuilt the resolution-matched organiser
+eval locally (`scripts/build_matched_eval_local.py`, adapting the
+teammate's `build_matched_eval.py` to this device's own WildFake cache
+instead of their machine's pre-fetched folders) and re-scored `mixed_v2`
+on it for a controlled baseline -- confirming their finding independently:
+source size-only AUC **1.0000**, matched size-only AUC **0.5000**. This
+also *corrected* section 11's own headline: `mixed_v2`'s honest matched
+Final Score is **0.7007/0.7126**, not the raw 0.8131/0.8192 -- a
+resolution-shortcut-inflated number, even though our pipeline resizes
+before the model sees anything (the shortcut survived as a correlated
+degradation-signature cue, not a raw pixel-count read).
+
+| Held-out set | Final Score | AUC clean | AUC robust |
+|---|---|---|---|
+| SID_Set (mixed full_synthetic + tampered, legacy sample) | 0.8603 | 0.8696 | 0.8509 |
+| **DRAGON, 8 unseen generators** | **0.9798** | 0.9873 | 0.9724 |
+| **Organiser, resolution-matched** | **0.8804** | 0.9137 | 0.8472 |
+
+**Controlled per-generator comparison** -- both `mixed_v2` and iter5a
+scored on the identical matched set, same 200-per-generator sample:
+
+| Generator | mixed_v2 clean | iter5a clean | delta | mixed_v2 robust | iter5a robust | delta |
+|---|---|---|---|---|---|---|
+| ADM | 0.478 | **0.855** | **+0.377** | 0.422 | 0.778 | +0.356 |
+| DDPM | 0.597 | **0.840** | **+0.243** | 0.522 | 0.767 | +0.245 |
+| DDIM | 0.836 | 0.942 | +0.106 | 0.753 | 0.867 | +0.114 |
+| DALLE | 0.860 | 0.948 | +0.088 | 0.794 | 0.903 | +0.109 |
+| VQDM | 0.950 | 0.983 | +0.033 | 0.795 | 0.921 | +0.126 |
+
+`mixed_v2`'s ADM clean AUC on the matched set is **below chance** (0.478)
+-- once the resolution shortcut can no longer substitute for detection, it
+had essentially none on ADM specifically. Every generator improved under
+iter5a, and the two largest gains land exactly on the two pixel-space
+diffusion generators this iteration targeted (crop_from_native + SAFE +
+GenImage ADM/GLIDE) -- the cleanest confirmation this project has produced
+that the diagnosed mechanism (section: fingerprints research, VAE-keyed
+detection failing on non-VAE generators) was correct and the fix worked.
+
+**Decision: iter5a supersedes `mixed_v2` as the best checkpoint.** Both
+gate conditions from the post-merge plan are met with margin: organiser
+Final Score up +0.18 (not merely non-regressed), and the specific
+diagnosed weakness (ADM/DDPM) closed rather than just the average moving.
+No regression on DRAGON (0.9798, and this is now a genuinely unseen-
+generator test the corpus was built to support). SID_Set's 0.8603 is not
+directly comparable to any earlier number on this same set with this same
+composition, so treated as a new baseline rather than a regression signal.
+
+Next: iteration 5b, `model_type: hybrid`, `branch_kind: wavelet`,
+`vit_checkpoint: runs/iter5a/best.pt` -- this run's own checkpoint now
+exists to warm-start from, closing the gap the "sequenced deliberately"
+note above was written to avoid.

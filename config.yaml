@@ -1,40 +1,54 @@
-# === TikTok TechJam PS5 detector -- iteration 5a config ===
-# Machine: this device (CUDA, RTX 3050 4GB laptop).
+# === TikTok TechJam PS5 detector -- iteration 5 config (this device) ===
+# Machine: this device (CUDA, RTX 3050 4GB laptop). The teammate's own
+# config (this branch's history) reproduces their iteration-4 baseline
+# (organiser Final Score 0.913) and their shipped iter7 (0.933, a frozen
+# CLIP-B fusion head trained separately -- see their local_reference/, not
+# in this tracked tree). Neither is directly reproducible here: iter4 was
+# confirmed never actually committed (.gitignore excludes runs/, *.pt/*.pth,
+# despite a commit message reading "Track model checkpoints in git"), and
+# their materialised corpus lives only on their machine.
 #
-# Not a warm start from runs/iter4/best.pt: despite the teammate's commit
-# message ("Track model checkpoints in git"), .gitignore excludes runs/ and
-# *.pt/*.pth, so no checkpoint actually made it into the repo -- confirmed
-# absent on this device. scratchpad/build_iter4.py was likewise never
-# committed (private, machine-local). Training from the pretrained
-# Community Forensics backbone instead, same as every prior run in this
-# project, on a locally-rebuilt corpus (scripts/build_iter5_corpus.py)
-# reconstructed from the teammate's documented iter3_train recipe
-# (experiments.md 9d/9g) plus GenImage ADM/GLIDE for the pixel-space
-# diffusion gap this project's own WildFake benchmark found (section 11).
+# This device's own line instead: trained iteration 5a from the pretrained
+# Community Forensics backbone (no warm start -- see the note above) on a
+# corpus rebuilt locally (scripts/build_iter5_corpus.py) from the
+# teammate's *documented* recipe rather than their uncommitted script.
+# Verified against their reported counts before trusting it. Result:
+# organiser Final Score 0.7007 (mixed_v2, the shortcut-corrected honest
+# baseline) -> 0.8804 (iter5a), controlled per-generator comparison on the
+# identical resolution-matched image set. Full writeup: this branch's git
+# history (commit "Iteration 5a: no warm start, local corpus,
+# crop_from_native+SAFE") -- see docs/EXPERIMENTS_LOG.md for the summary
+# kept in the tracked tree, since experiments.md itself was moved to the
+# teammate's untracked local_reference/ during the "Clean repo" pass.
 #
-# Sequenced deliberately as vit-only first, hybrid second (iteration 5b,
-# once this run's checkpoint exists to warm-start from): the hybrid
-# architecture's own history in this project (section 8) showed a
-# frequency/wavelet branch needs an already-validated ViT base to fuse
-# against, not a fresh pretrained one -- fusing against a fresh base
-# reproduced the exact "predicts real 100% of the time" failure this
-# project already diagnosed and fixed once.
+# Below now points at iteration 5b: hybrid + wavelet branch, warm-started
+# from iter5a's own (validated, on-disk) checkpoint -- see the model_type
+# block just below.
 
 data_source: local
 data_dir: ../iter5_data/train
-output_dir: runs/iter5a
+# NOT runs/iter5a -- that already holds the validated iter5a checkpoint
+# vit_checkpoint above loads from. Writing 5b's output there would
+# overwrite it mid-run.
+output_dir: runs/iter5b
 
-model_type: vit
-# iteration 5b, once runs/iter5a/best.pt exists:
-#   model_type: hybrid
-#   branch_kind: wavelet
-#   vit_checkpoint: runs/iter5a/best.pt
+# Iteration 5b: runs/iter5a/best.pt now exists (validated, organiser Final
+# 0.8804). HybridDetector.configure_finetuning freezes the ViT half
+# entirely and trains only the new branch + fusion head, so this converges
+# on far fewer parameters than iter5a did -- epochs dropped from 10 to 5
+# accordingly (see below).
+model_type: hybrid
+branch_kind: wavelet
+vit_checkpoint: runs/iter5a/best.pt
 
 seed: 2026
 validation_fraction: 0.12
 
 batch_size: 16
-epochs: 10
+# 5, not 10: only the wavelet branch + fusion head train (ViT frozen), a
+# small fraction of iter5a's trainable parameters, so convergence is
+# expected well before 10 epochs on the same data.
+epochs: 5
 learning_rate: 0.00002
 weight_decay: 0.01
 # data_source: local reads a materialized folder rather than re-fetching HF
@@ -48,10 +62,10 @@ weight_decay: 0.01
 # bottleneck once crop_from_native's heavier per-image decode is measured.
 num_workers: 4
 
-# iter5_data/train is smaller than the teammate's ~61k iter4_train (SID_Set
-# full_synthetic + DRAGON 17-of-25 + GenImage ADM/GLIDE, no CF-Small) --
-# samples_per_epoch left unset so every epoch sees the whole pool rather
-# than a fixed-size draw tuned for their larger corpus.
+# iter5_data/train is 24,612 images -- close enough to a single epoch's
+# worth of the teammate's fixed 24k-per-epoch draw (tuned for their larger
+# ~61k corpus) that samples_per_epoch is left unset: every epoch already
+# sees close to the whole pool.
 
 train_augment_probability: 0.8
 
@@ -59,7 +73,7 @@ train_augment_probability: 0.8
 crop_from_native: true
 safe_augment: true
 
-# --- objective alignment (experiments.md 9c-9h) ---
+# --- objective alignment ---
 select_metric: roc_auc
 loss_pos_weight: 1.0
 balance_classes: true

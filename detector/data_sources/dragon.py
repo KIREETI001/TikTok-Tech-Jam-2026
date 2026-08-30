@@ -6,7 +6,7 @@ distilled/fast variants -- LCM, SDXL Turbo/Lightning, Hyper-SD -- whose
 artifacts differ from standard diffusion sampling and aren't represented
 in SID_Set or the PS5 dataset). Added as a third training-diversity source
 after evaluating the mixed (PS5 + SID_Set) checkpoint and finding room to
-improve cross-dataset generalization further; see experiments.md section 7.
+improve cross-dataset generalization further.
 
 DRAGON is fake-only -- every image here is AI-generated (there is no
 paired "real" class in this dataset). This mixes in as extra fake-class

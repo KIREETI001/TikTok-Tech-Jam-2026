@@ -49,20 +49,38 @@
     transition: border-color .15s, background .15s;
   }
   #drop:hover, #drop.over { border-color: var(--accent); background: var(--panel-2); }
+  #bdrop {
+    border: 1.5px dashed var(--line); border-radius: 8px; padding: 1.4rem 1rem;
+    text-align: center; cursor: pointer; color: var(--ink-dim);
+    transition: border-color .15s, background .15s;
+  }
+  #bdrop:hover, #bdrop.over { border-color: var(--accent); background: var(--panel-2); }
+  #bdrop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #btable td.v { text-align: right; font-weight: 600; width: 6rem; }
+  #btable td.v.ai { color: var(--ai); } #btable td.v.real { color: var(--real-ok); }
+  #btable td.f { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #drop.has { padding: .75rem; border-style: solid; }
   #drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   #preview { max-width: 100%; max-height: 260px; border-radius: 6px; display: block; margin: 0 auto; }
   .hint { font-size: .8rem; color: var(--ink-dim); margin-top: .6rem; text-align: center; }
 
   .verdict { text-align: center; padding: .5rem 0 .25rem; }
-  .p { font: 600 3rem/1 var(--mono); letter-spacing: -.03em; }
-  .p.real { color: var(--real-ok); }
-  .p.ai { color: var(--ai); }
-  .label { font-size: .8rem; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-dim); margin-top: .4rem; }
+  .call { font: 700 1.9rem/1.1 system-ui, sans-serif; letter-spacing: -.02em; }
+  .call.real { color: var(--real-ok); }
+  .call.ai { color: var(--ai); }
+  .conf { font-size: .85rem; color: var(--ink-dim); margin-top: .45rem; min-height: 1.2em; }
   .meta { font: .78rem/1.5 var(--mono); color: var(--ink-dim); text-align: center; margin-top: .75rem; min-height: 1.2em; }
 
-  .bar { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; margin: 1rem 0 .35rem; }
-  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  .bar { position: relative; height: 8px; border-radius: 4px; overflow: visible;
+         margin: 1.1rem 0 .35rem;
+         background: linear-gradient(90deg, var(--real-ok), #C9A227 55%, var(--ai)); }
+  .bar > i { position: absolute; top: -3px; width: 3px; height: 14px; border-radius: 2px;
+             background: var(--ink); transform: translateX(-50%); left: 0; transition: left .3s; }
+  .bar .thr { position: absolute; top: -6px; bottom: -6px; width: 0;
+              border-left: 1.5px dashed var(--ink-dim); }
+  .scale { display: flex; justify-content: space-between; font-size: .72rem; color: var(--ink-dim);
+           letter-spacing: .04em; }
+  .scale #probTxt { font-family: var(--mono); }
 
   button {
     font: 500 .9rem system-ui, sans-serif; color: var(--ink);
@@ -105,7 +123,7 @@
 
 <header>
   <h1>Real or Generated</h1>
-  <p class="sub">Upload an image for a calibrated estimate &mdash; then check whether that estimate survives the compression, blur, resizing and noise every image picks up in circulation.</p>
+  <p class="sub">Upload an image &mdash; get a verdict (authentic or AI-generated) with a calibrated confidence, then check whether that verdict survives the compression, blur, resizing and noise every image picks up in circulation.</p>
 </header>
 
 <div class="grid">
@@ -121,25 +139,47 @@
 
   <div class="panel">
     <div class="verdict">
-      <div class="p" id="prob">&mdash;</div>
-      <div class="label">probability AI-generated</div>
+      <div class="call" id="call">&mdash;</div>
+      <div class="conf" id="conf"></div>
     </div>
-    <div class="bar"><i id="bar"></i></div>
+    <div class="bar" id="barWrap"><i id="bar"></i><span class="thr" id="thrMark" hidden></span></div>
+    <div class="scale"><span>authentic</span><span id="probTxt">P(AI) &mdash;</span><span>AI</span></div>
     <div class="meta" id="meta"></div>
     <div style="margin-top:1rem">
       <button id="robustBtn" class="primary" disabled>Test robustness &nbsp;&middot;&nbsp; 15 conditions</button>
     </div>
-    <p class="note">The competition scores <strong>half</strong> on clean images and <strong>half</strong> on degraded ones. A detector that only works on pristine uploads solves half the problem.</p>
+    <p class="note">Neural detectors are <strong>decisive by design</strong> — a BCE-trained model pushes its score to near 0 or 1 for any image it can classify, so most results read as "decisive". The meaningful output is the verdict and its rank; the competition scores threshold-free ROC-AUC, not the raw percentage.</p>
   </div>
 </div>
 
 <div class="panel" id="robustPanel" style="margin-top:1rem" hidden>
-  <h2>Confidence under the evaluation grid</h2>
+  <h2>Verdict under the evaluation grid</h2>
   <table>
-    <thead><tr><th>Condition</th><th class="g"></th><th style="text-align:right">P(AI)</th></tr></thead>
+    <thead><tr><th>Condition</th><th class="g"></th><th style="text-align:right">P(AI)</th><th style="text-align:right">call</th></tr></thead>
     <tbody id="robustRows"></tbody>
   </table>
   <p class="note" id="spreadNote"></p>
+</div>
+
+<div class="panel" style="margin-top:1rem">
+  <h2>Score many images at once</h2>
+  <div id="bdrop" tabindex="0" role="button" aria-label="Choose images to score">
+    Choose images (or a folder), or drop them here
+  </div>
+  <div class="hint">Up to 200 files per batch. Scored in memory, nothing stored.</div>
+  <input id="bfile" type="file" accept="image/*" multiple hidden>
+  <input id="bdir"  type="file" webkitdirectory hidden>
+  <div style="display:flex; gap:.6rem; margin-top:.8rem">
+    <button id="bpick">Pick files</button>
+    <button id="bpickdir">Pick folder</button>
+    <button id="bcsv" disabled>Download CSV</button>
+  </div>
+  <p class="meta" id="bsummary" style="text-align:left"></p>
+  <div class="err" id="berr" role="alert"></div>
+  <table id="btable" hidden>
+    <thead><tr><th>File</th><th class="g"></th><th style="text-align:right">P(AI)</th><th style="text-align:right">Verdict</th></tr></thead>
+    <tbody id="brows"></tbody>
+  </table>
 </div>
 
 <div class="panel cfg">
@@ -148,7 +188,7 @@
   <p class="note" id="health"></p>
 </div>
 
-<footer>TikTok TechJam 2026 &middot; Problem Statement 5 &mdash; returns a calibrated probability, not a verdict.</footer>
+<footer>TikTok TechJam 2026 &middot; Problem Statement 5 &mdash; verdict + calibrated P(AI). Score is threshold-free; the label uses a threshold fit on held-out generators.</footer>
 </div>
 
 <script>
@@ -199,17 +239,35 @@ function handle(file) {
   predict();
 }
 
-function render(p) {
-  const pct = (p * 100).toFixed(1);
-  const el = $("prob");
-  el.textContent = pct + "%";
-  el.className = "p " + (p >= 0.5 ? "ai" : "real");
-  $("bar").style.width = pct + "%";
-  $("bar").style.background = p >= 0.5 ? "var(--ai)" : "var(--real-ok)";
+function render(d) {
+  const p = d.p_ai, thr = d.threshold;
+  const isAI = d.verdict === "AI-generated";
+
+  const call = $("call");
+  call.textContent = isAI ? "AI-generated" : "Authentic";
+  call.className = "call " + (isAI ? "ai" : "real");
+
+  // The detector is decisive by design (BCE-trained logits are large), so the
+  // raw probability is near 0 or 1 for clear images. Report the qualitative
+  // band the server computed from the logit magnitude, and only surface a
+  // precise percentage when the call is actually close.
+  const word = { decisive: "Decisive", clear: "Clear", borderline: "Borderline" }[d.confidence] || "";
+  let line;
+  if (d.confidence === "decisive")   line = `${word} — the model finds this clearly ${isAI ? "AI-generated" : "authentic"}.`;
+  else if (d.confidence === "clear") line = `${word} — ${isAI ? "AI-generated" : "authentic"}, P(AI) ${(p * 100).toFixed(0)}%.`;
+  else                               line = `${word} — P(AI) ${(p * 100).toFixed(0)}%, close to the ${(thr * 100).toFixed(0)}% decision line.`;
+  $("conf").textContent = line;
+
+  $("bar").style.left = (p * 100) + "%";
+  const tm = $("thrMark");
+  tm.style.left = (thr * 100) + "%";
+  tm.hidden = false;
+  $("probTxt").textContent = `P(AI) ${(p * 100).toFixed(1)}%`;
 }
 
 async function predict() {
-  $("prob").innerHTML = '<span class="spin"></span>';
+  $("call").textContent = ""; $("call").className = "call";
+  $("conf").innerHTML = '<span class="spin"></span>';
   $("meta").textContent = "";
   $("robustBtn").disabled = true;
   const body = new FormData();
@@ -218,11 +276,12 @@ async function predict() {
     const r = await fetch(base() + "/predict", { method: "POST", body });
     if (!r.ok) throw new Error(((await r.json().catch(() => ({}))).detail) || r.statusText);
     const d = await r.json();
-    render(d.p_ai);
-    $("meta").textContent = `${d.width}×${d.height} · decision threshold ${d.threshold}`;
+    render(d);
+    $("meta").textContent = `${d.width}×${d.height} · logit ${d.logit.toFixed(1)} · flagged AI when P(AI) ≥ ${d.threshold}`;
     $("robustBtn").disabled = false;
   } catch (e) {
-    $("prob").textContent = "—";
+    $("conf").textContent = "";
+    $("call").textContent = "—"; $("call").className = "call";
     setError(String(e.message || e));
   }
 }
@@ -239,10 +298,12 @@ $("robustBtn").addEventListener("click", async () => {
     const d = await r.json();
     $("robustRows").innerHTML = d.conditions.map((c) => {
       const pct = (c.p_ai * 100).toFixed(1);
-      const col = c.p_ai >= 0.5 ? "var(--ai)" : "var(--real-ok)";
+      const col = c.p_ai >= d.threshold ? "var(--ai)" : "var(--real-ok)";
+      const v = c.p_ai >= d.threshold ? "AI" : "real";
       return `<tr><td>${c.condition}</td>
         <td class="g"><div class="mini"><i style="width:${pct}%;background:${col}"></i></div></td>
-        <td class="n">${pct}%</td></tr>`;
+        <td class="n">${pct}%</td>
+        <td class="n" style="color:${col};width:3rem">${v}</td></tr>`;
     }).join("");
     $("spreadNote").textContent =
       `Spread across the 14 degraded conditions: ${(d.spread * 100).toFixed(1)} percentage points. `
@@ -253,6 +314,62 @@ $("robustBtn").addEventListener("click", async () => {
   }
   btn.disabled = false;
   btn.textContent = "Test robustness · 15 conditions";
+});
+
+// ---- batch ----
+const bdrop = $("bdrop"), bfile = $("bfile"), bdir = $("bdir");
+let batchRows = [];
+
+$("bpick").addEventListener("click", () => bfile.click());
+$("bpickdir").addEventListener("click", () => bdir.click());
+bdrop.addEventListener("click", () => bfile.click());
+bdrop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); bfile.click(); } });
+bdrop.addEventListener("dragover", (e) => { e.preventDefault(); bdrop.classList.add("over"); });
+bdrop.addEventListener("dragleave", () => bdrop.classList.remove("over"));
+bdrop.addEventListener("drop", (e) => { e.preventDefault(); bdrop.classList.remove("over"); runBatch(e.dataTransfer.files); });
+bfile.addEventListener("change", () => runBatch(bfile.files));
+bdir.addEventListener("change", () => runBatch(bdir.files));
+
+async function runBatch(fileList) {
+  const files = [...fileList].filter((f) => f.type.startsWith("image/"));
+  $("berr").textContent = "";
+  if (!files.length) { $("berr").textContent = "No image files selected."; return; }
+  if (files.length > 200) { $("berr").textContent = `Too many (${files.length}). Cap is 200 per batch.`; return; }
+  $("bsummary").innerHTML = `<span class="spin"></span> scoring ${files.length} image${files.length > 1 ? "s" : ""}…`;
+  $("btable").hidden = true; $("bcsv").disabled = true;
+  const body = new FormData();
+  files.forEach((f) => body.append("files", f, f.name));
+  try {
+    const r = await fetch(base() + "/predict/batch", { method: "POST", body });
+    if (!r.ok) throw new Error(((await r.json().catch(() => ({}))).detail) || r.statusText);
+    const d = await r.json();
+    batchRows = d.results;
+    $("brows").innerHTML = d.results.map((x) => {
+      const pct = (x.p_ai * 100).toFixed(1);
+      const ai = x.verdict === "AI-generated";
+      const col = ai ? "var(--ai)" : "var(--real-ok)";
+      return `<tr><td class="f" title="${x.filename}">${x.filename}</td>
+        <td class="g"><div class="mini"><i style="width:${pct}%;background:${col}"></i></div></td>
+        <td class="n">${pct}%</td>
+        <td class="v ${ai ? "ai" : "real"}">${ai ? "AI" : "real"}</td></tr>`;
+    }).join("");
+    $("btable").hidden = false;
+    $("bsummary").textContent =
+      `${d.count} scored · ${d.n_ai} AI-generated, ${d.n_authentic} authentic`
+      + (d.errors.length ? ` · ${d.errors.length} unreadable` : "");
+    $("bcsv").disabled = false;
+  } catch (e) {
+    $("bsummary").textContent = "";
+    $("berr").textContent = String(e.message || e);
+  }
+}
+
+$("bcsv").addEventListener("click", () => {
+  const csv = "filename,probability_ai,verdict,width,height\n"
+    + batchRows.map((x) => `${JSON.stringify(x.filename)},${x.p_ai.toFixed(6)},${x.verdict},${x.width},${x.height}`).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = "predictions.csv"; a.click();
 });
 
 checkHealth();

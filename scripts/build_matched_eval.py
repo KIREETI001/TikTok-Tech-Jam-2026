@@ -28,17 +28,18 @@ Also writes a size-only AUC for the source and matched sets: a classifier
 that sees nothing but the pixel count. 0.5 means size carries no label
 information; anything near 0 or 1 means the set is measuring file headers.
 
-*** EVALUATION ONLY -- see EVAL_ONLY_DATASETS.md. ***
+*** EVALUATION ONLY -- never train or calibrate on this. ***
 """
 
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
 from PIL import Image
 
-DATA = Path(r"C:\Users\attil\ttj-data")
+DATA = Path(os.environ.get("TTJ_DATA", "./data"))  # set TTJ_DATA to your materialised-data root
 
 # The smallest common side across both classes. WildFake's own authentic half
 # (Images/Real/coco.zip) ships at 200x200 and its generated images at 256+, so

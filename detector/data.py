@@ -74,11 +74,11 @@ EVAL_ONLY_PREFIX = "eval_only_"
 def assert_not_eval_only(root: str | Path) -> None:
     """Refuse to use an evaluation-only benchmark as training data.
 
-    The organisers designate WildFake (and anything else staged under an
-    ``eval_only_*`` directory -- see EVAL_ONLY_DATASETS.md) as validation
-    only. Training on it, or even selecting a threshold on it, would make
-    every reported number meaningless, so the training path calls this and
-    fails loudly rather than relying on nobody mistyping ``data_dir``.
+    Anything staged under an ``eval_only_*`` directory (the organisers'
+    matched WildFake+COCO composition, and any other held-out benchmark) is
+    validation only. Training on it, or even selecting a threshold on it,
+    would make every reported number meaningless, so the training path calls
+    this and fails loudly rather than relying on nobody mistyping ``data_dir``.
     """
 
     path = Path(root).expanduser().resolve()
@@ -87,7 +87,7 @@ def assert_not_eval_only(root: str | Path) -> None:
             raise ValueError(
                 f"{path} is an evaluation-only benchmark ('{part}') and must "
                 "never be used for training, validation-split selection, or "
-                "threshold calibration. See EVAL_ONLY_DATASETS.md."
+                "threshold calibration."
             )
 
 

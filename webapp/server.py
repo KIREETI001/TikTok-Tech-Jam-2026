@@ -1,10 +1,12 @@
 """Inference API for the AI-vs-real image detector.
 
-Two endpoints:
+Endpoints:
 
-    POST /predict          image in, calibrated P(AI) out
-    POST /predict/robust   image in, P(AI) under each of the brief's 15
+    POST /predict          one image in, calibrated P(AI) out
+    POST /predict/robust   one image in, P(AI) under each of the brief's 15
                            evaluation conditions out
+    POST /predict/batch    many images in, a P(AI) + verdict table out
+                           (the folder-scoring path the CLI exposes, in the UI)
 
 The second exists because the competition scores
 ``0.5 * AUC_clean + 0.5 * AUC_robust`` -- half the score is behaviour under
@@ -24,12 +26,14 @@ Run locally:
 from __future__ import annotations
 
 import io
+import math
 import os
 import sys
 from pathlib import Path
 
 import torch
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from typing import List
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from PIL import Image, UnidentifiedImageError
@@ -46,7 +50,7 @@ from detector.transforms import (  # noqa: E402
 )
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
-CHECKPOINT = os.environ.get("DETECTOR_CHECKPOINT", "runs/latest/best.pt")
+CHECKPOINT = os.environ.get("DETECTOR_CHECKPOINT", "runs/iter7/best.pt")
 DEVICE = os.environ.get("DETECTOR_DEVICE", "auto")
 # Comma-separated allowlist. "*" is fine here: no cookies, no auth, and the
 # uploaded image is scored in memory and dropped rather than retained.
@@ -92,6 +96,32 @@ def _read_image(raw: bytes) -> Image.Image:
         raise HTTPException(status_code=400, detail=f"Not a readable image: {exc}") from exc
 
 
+# Temperature for the reported probability. The detector's raw logits are
+# large (median |logit| ~ 7.7 on held-out data) -- typical for a neural
+# classifier trained with BCE, and why the competition scores threshold-free
+# ROC-AUC rather than probability accuracy. T > 1 softens the probability
+# without changing any verdict or the ranking. Fitted on withheld generators.
+TEMPERATURE = float(os.environ.get("DETECTOR_TEMPERATURE", "1.33"))
+
+
+def _confidence(logit: float) -> str:
+    """A qualitative band from the logit magnitude (calibration-free)."""
+    a = abs(logit)
+    if a >= 4.0:   # p < 1.8%% or > 98.2%%
+        return "decisive"
+    if a >= 1.5:   # p < 18%% or > 82%%
+        return "clear"
+    return "borderline"
+
+
+@torch.no_grad()
+def _logit(tensor: torch.Tensor) -> torch.Tensor:
+    out = _MODEL(tensor)
+    if out.ndim == 2 and out.shape[1] == 1:
+        out = out[:, 0]
+    return out
+
+
 @torch.no_grad()
 def _score(image: Image.Image, condition: str = "clean") -> float:
     """P(AI) for one image under one evaluation condition."""
@@ -99,6 +129,19 @@ def _score(image: Image.Image, condition: str = "clean") -> float:
     transform = build_eval_transform(condition, crop_from_native=crop_from_native)
     tensor = transform(image).unsqueeze(0).to(_DEVICE)
     return float(_probabilities(_MODEL, tensor)[0])
+
+
+@torch.no_grad()
+def _score_many(images: list[Image.Image], chunk: int = 16) -> list[tuple[float, float]]:
+    """(temperature-scaled P(AI), raw logit) per image, clean condition, batched."""
+    crop_from_native = bool(_META.get("crop_from_native", False))
+    transform = build_eval_transform("clean", crop_from_native=crop_from_native)
+    out: list[tuple[float, float]] = []
+    for i in range(0, len(images), chunk):
+        batch = torch.stack([transform(im) for im in images[i : i + chunk]]).to(_DEVICE)
+        for lg in _logit(batch).float().cpu().tolist():
+            out.append((1.0 / (1.0 + math.exp(-lg / TEMPERATURE)), lg))
+    return out
 
 
 async def _upload_bytes(file: UploadFile) -> bytes:
@@ -127,6 +170,8 @@ def health() -> JSONResponse:
             "checkpoint": str(CHECKPOINT),
             "device": str(_DEVICE),
             "model_type": _META.get("model_type") or "vit",
+            "branch_kind": _META.get("branch_kind"),
+            "clip_model": _META.get("clip_model"),
             "parameters": _META.get("parameter_count"),
             "crop_from_native": bool(_META.get("crop_from_native", False)),
             "threshold": float(_META.get("threshold", 0.5)),
@@ -145,12 +190,20 @@ async def predict(file: UploadFile = File(...)) -> JSONResponse:
     """
     _load()
     image = _read_image(await _upload_bytes(file))
-    probability = _score(image)
+    crop_from_native = bool(_META.get("crop_from_native", False))
+    tensor = build_eval_transform("clean", crop_from_native=crop_from_native)(image).unsqueeze(0).to(_DEVICE)
+    logit = float(_logit(tensor)[0])
+    probability = 1.0 / (1.0 + math.exp(-logit / TEMPERATURE))
+    thr = float(_META.get("threshold", 0.5))
+    verdict = "AI-generated" if logit >= math.log(thr / (1.0 - thr)) else "authentic"
     return JSONResponse(
         {
             "p_ai": probability,
             "p_authentic": 1.0 - probability,
-            "threshold": float(_META.get("threshold", 0.5)),
+            "logit": logit,
+            "verdict": verdict,
+            "confidence": _confidence(logit),
+            "threshold": thr,
             "width": image.width,
             "height": image.height,
         }
@@ -190,6 +243,57 @@ async def predict_robust(file: UploadFile = File(...)) -> JSONResponse:
             # exactly the property the robust half of the score rewards.
             "spread": spread,
             "threshold": float(_META.get("threshold", 0.5)),
+        }
+    )
+
+
+@app.post("/predict/batch")
+async def predict_batch(files: List[UploadFile] = File(...)) -> JSONResponse:
+    """Calibrated P(AI) + verdict for many images at once.
+
+    The same folder-scoring the CLI does (`pipeline.py predict --input <dir>`),
+    exposed for the UI so a whole set can be checked in one pass. Capped at
+    200 files per request; scored in memory, nothing retained.
+    """
+    _load()
+    if len(files) > 200:
+        raise HTTPException(status_code=413, detail="Max 200 images per batch.")
+
+    names: list[str] = []
+    images: list[Image.Image] = []
+    errors: list[dict] = []
+    for f in files:
+        try:
+            raw = await _upload_bytes(f)
+            images.append(_read_image(raw))
+            names.append(f.filename or f"image_{len(names)}")
+        except HTTPException as exc:
+            errors.append({"filename": f.filename, "error": exc.detail})
+
+    scored = _score_many(images) if images else []
+    thr = float(_META.get("threshold", 0.5))
+    logit_thr = math.log(thr / (1.0 - thr))          # verdict in raw-logit space
+    results = [
+        {
+            "filename": n,
+            "p_ai": p,                                # temperature-scaled, for display
+            "verdict": "AI-generated" if lg >= logit_thr else "authentic",
+            "confidence": _confidence(lg),
+            "width": im.width,
+            "height": im.height,
+        }
+        for n, (p, lg), im in zip(names, scored, images)
+    ]
+    results.sort(key=lambda r: -r["p_ai"])
+    n_ai = sum(1 for r in results if r["verdict"] == "AI-generated")
+    return JSONResponse(
+        {
+            "threshold": thr,
+            "count": len(results),
+            "n_ai": n_ai,
+            "n_authentic": len(results) - n_ai,
+            "results": results,
+            "errors": errors,
         }
     )
 

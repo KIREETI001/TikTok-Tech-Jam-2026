@@ -958,10 +958,53 @@ ECCV 2024) does not apply because both classes are re-saved 448px JPEG.
 Organiser eval set: pixel 66.6% -- that is the eval set's own property
 (WildFake fakes genuinely smoother than COCO reals), not ours to fix.
 
-Full 15-condition Final Score: _pending the per-condition feature cache_
-(`scratchpad/precompute_eval15.py`, exact `build_eval_transform` so it is
-comparable to `pipeline.py evaluate`; vit-only from the same cache should
-reproduce iter4's 0.9126 as the validation).
+**Full 15-condition Final Score (per-condition feature cache,
+`scratchpad/precompute_eval15.py`, exact `build_eval_transform`):**
+
+Validation: vit-only from the cache = organiser Final Score **0.9129**
+(clean 0.9288 / robust 0.8970) -- reproduces iter4's 0.9126 exactly, so the
+cache and every fusion number below are on the real metric scale.
+
+| | iter4 (ViT) | iter7 (+ CLIP-B, clean head) | iter7 (+ feature-jitter head) |
+|---|---|---|---|
+| Final Score | 0.9129 | 0.9265 | **0.9326** |
+| clean AUC | 0.9288 | 0.9533 | 0.9548 |
+| robust AUC | 0.8970 | 0.8997 | **0.9105** |
+
+**Feature-jitter.** The clean-trained CLIP head added +0.025 clean AUC but
+only +0.003 robust -- CLIP embeddings shift under degradation (measured
+cos-sim clean-vs-degraded ~0.76-0.84). The real fix (precompute CLIP under
+degradation, `scratchpad/precompute_train_aug.py`) hung on the iGPU. Cheap
+substitute: train the head with per-sample gaussian noise on the CLIP
+feature vector, scale `sigma ~ U(0, jitter) * feature_std`. Sweep:
+jitter 0 -> FS 0.9265, jitter 1.0 -> **0.9326**, jitter 2.0 -> 0.9325
+(clean starts dropping past 1.0). Recovered robust 0.900 -> 0.911;
+jpeg_q30 and noise_sigma0.10 each +0.02.
+
+Per-generator clean/robust AUC: ADM 0.888/0.848, DDPM 0.930/0.862,
+DDIM 0.949/0.892, Imagen 0.972/0.932, DALLE 0.994/0.962, VQDM 0.997/0.967.
+ADM 0.82 -> 0.89 is the headline -- the frozen CLIP semantic branch reads
+content cues where the artifact-trained ViT finds nothing (ADM's iterative
+denoising leaves no spectral fingerprint; SAFE's published ceiling is 0.82).
+
+Calibrated threshold **0.215** (minmax_fpfn on DRAGON genval): genval AUC
+0.999 FPR 1.2/FNR 1.2, calval AUC 0.998 FPR 1.2/FNR 2.4. On the organiser
+set that threshold gives clean FNR 23% -- pixel-diffusion fakes score lower
+than the latent-diffusion generators it was fit on. Score is threshold-free.
+
+**Submission checkpoint: `runs/iter7/best.pt`** -- 107.7M inference params
+(21.7M ViT + 86M frozen CLIP-B), ~200K trainable. `hf_upload/` has the model
+card + `upload.py` (needs the user's HF write token).
+
+### 9n. CLIP ViT-L/14 -- not viable on this hardware
+
+The teammate's biggest lever (+0.069, ResNet backbone / easier holdout).
+Attempted three ways: live in the training loop (~6 s/step), and twice via
+the precompute path. Every CLIP-L job on the Intel Arc iGPU either ran at
+~1/6th CLIP-B speed or hung outright (large-attention GEMM instability,
+same failure class as torch 2.13's oneDNN hang). CLIP-B's +0.014 is banked;
+CLIP-L abandoned. On an NVIDIA box the `TTJ_CLIP_MODEL` env var + the
+`scratchpad/precompute_*_L.py` scripts would run it.
 
 ### 9g. Literature review + briefing deck (RESEARCH_SYNTHESIS.md)
 

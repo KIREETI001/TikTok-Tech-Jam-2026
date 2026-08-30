@@ -6,9 +6,10 @@ cd /d "%~dp0"
 
 REM  Prefer the project venv if it exists, else any python on PATH.
 set "PY=.venv\Scripts\python.exe"
-if not exist "%PY%" set "PY=python"
+if exist "%PY%" goto :run
 
-where %PY% >nul 2>nul
+set "PY=python"
+where python >nul 2>nul
 if errorlevel 1 (
   echo.
   echo   Python was not found. Install Python 3.10-3.12 from python.org
@@ -18,5 +19,6 @@ if errorlevel 1 (
   exit /b 1
 )
 
+:run
 "%PY%" scripts\menu.py
 pause

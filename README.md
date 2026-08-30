@@ -193,7 +193,14 @@ production deployment, no localisation. Consistent with this project.
 
 ## Try it (2 minutes)
 
-**1 — set up the environment** (Python 3.11 or 3.12):
+**Easiest — the guided menu.** Double-click **`run.bat`** (Windows) or run
+**`bash run.sh`** (Linux/macOS). It sets up the environment, fetches the
+weights, and offers: smoke test · predict a folder · web demo · **evaluate on
+the WildFake benchmark** (streamed — no dataset download) · train.
+
+Or do it by hand:
+
+**1 — set up the environment** (Python 3.10–3.12):
 
 ```bash
 python -m venv .venv
@@ -277,6 +284,7 @@ the eval set. `python pipeline.py materialize-sid-set --help` and
 ## Repository layout
 
 ```
+run.bat / run.sh     guided menu: setup · weights · smoke · predict · demo · benchmark · train
 detector/            model · data · transforms · training · evaluation · calibration
 pipeline.py          ingest · train · evaluate · predict · smoke · materialize-sid-set
 config.yaml           training knobs

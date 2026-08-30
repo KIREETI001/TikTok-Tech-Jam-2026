@@ -29,6 +29,8 @@ organiser Final Score **0.9326** (clean 0.9548 / robust 0.9105), threshold
 - [x] No test-label training — `assert_not_eval_only()` guards it in code
 - [x] Augmentation scripts included — `detector/transforms.py`
 - [ ] Open-source model weights → **upload `runs/iter7/best.pt` to HuggingFace**
+      (`python hf_upload/upload.py --repo kireeti26/ttj-aigc-detector` — model
+      repos are still free; only Docker Spaces now need PRO)
 
 ## To finish (needs the user)
 
@@ -36,11 +38,13 @@ organiser Final Score **0.9326** (clean 0.9548 / robust 0.9105), threshold
        `python hf_upload/upload.py --repo kireeti26/ttj-aigc-detector`.
        Package ready: `hf_upload/{model_config.json, README.md, upload.py}`.
        Then add the HF link to `README.md` and `DEVPOST.md`.
-2. [ ] **Demo video** — `DETECTOR_CHECKPOINT=runs/iter7/best.pt uvicorn
-       webapp.server:app --port 8000`, follow `DEMO_SCRIPT.md`, upload to
-       YouTube (unlisted → public).
-3. [ ] **Devpost form** — paste `DEVPOST.md`; add repo URL + video URL.
-4. [ ] Optional: merge `kireeti-pipeline` → `main`, or make it the default
+2. [ ] **Live demo** — `powershell -ExecutionPolicy Bypass -File serve_demo.ps1`
+       → prints a public `https://<...>.trycloudflare.com` URL (free, no
+       account; lives while the script runs). Run it right before judging.
+3. [ ] **Demo video** — screen-record the live page (single image · robustness
+       grid · batch), follow `DEMO_SCRIPT.md`, upload to YouTube.
+4. [ ] **Devpost form** — paste `DEVPOST.md`; add repo URL + video URL.
+5. [ ] Optional: merge `kireeti-pipeline` → `main`, or make it the default
        branch, so the repo root shows the current work.
 
 ## Done this sprint

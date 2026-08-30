@@ -142,6 +142,8 @@ def health() -> JSONResponse:
             "checkpoint": str(CHECKPOINT),
             "device": str(_DEVICE),
             "model_type": _META.get("model_type") or "vit",
+            "branch_kind": _META.get("branch_kind"),
+            "clip_model": _META.get("clip_model"),
             "parameters": _META.get("parameter_count"),
             "crop_from_native": bool(_META.get("crop_from_native", False)),
             "threshold": float(_META.get("threshold", 0.5)),

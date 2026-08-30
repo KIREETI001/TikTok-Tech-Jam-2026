@@ -57,6 +57,32 @@ def _ask(prompt: str, default: str = "") -> str:
     return v or default
 
 
+def _deps_ready() -> bool:
+    """True if the interpreter we'd run project commands with can import the
+    core dependencies."""
+    probe = "import numpy, torch, timm, PIL, yaml  # noqa"
+    try:
+        return subprocess.call(
+            [_py(), "-c", probe],
+            cwd=str(ROOT),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ) == 0
+    except Exception:
+        return False
+
+
+def _require_deps() -> bool:
+    if _deps_ready():
+        return True
+    where = ".venv" if _venv_python().exists() else f"'{sys.executable}'"
+    print(
+        f"! Dependencies are not installed in {where}.\n"
+        "  Run option 1 (Set up environment) first, then try again."
+    )
+    return False
+
+
 def _detect_accelerator() -> str:
     if shutil.which("nvidia-smi"):
         return "cuda"
@@ -130,11 +156,15 @@ def get_weights() -> None:
 
 def smoke() -> None:
     print("\n== Smoke test (synthetic data, no downloads) ==")
+    if not _require_deps():
+        return
     _run([_py(), "pipeline.py", "smoke", "--device", "auto"])
 
 
 def predict_folder() -> None:
     print("\n== Predict a folder of images ==")
+    if not _require_deps():
+        return
     if not CKPT.exists():
         print("! No model weights. Run option 2 first."); return
     folder = _ask("path to a folder of images", str(ROOT / "demo_images"))
@@ -146,6 +176,8 @@ def predict_folder() -> None:
 
 def demo() -> None:
     print("\n== Web demo ==")
+    if not _require_deps():
+        return
     if not CKPT.exists():
         print("! No model weights. Run option 2 first."); return
     env = {**os.environ, "DETECTOR_CHECKPOINT": str(CKPT), "DETECTOR_DEVICE": "auto"}
@@ -155,6 +187,8 @@ def demo() -> None:
 
 def eval_wildfake() -> None:
     print("\n== Evaluate on the WildFake benchmark ==")
+    if not _require_deps():
+        return
     if not CKPT.exists():
         print("! No model weights. Run option 2 first."); return
     print(
@@ -205,9 +239,12 @@ def main() -> int:
         print("  AI-Generated Image Detector  -  setup & run")
         print("  model: ViT-S + frozen CLIP-B/16  -  Final Score 0.933")
         print("=" * 60)
-        vp = "yes" if _venv_python().exists() else "no - run option 1"
+        if _deps_ready():
+            dp = "ready" if _venv_python().exists() else "ready (system Python)"
+        else:
+            dp = "not installed - run option 1"
         wp = "yes" if CKPT.exists() else "no - run option 2"
-        print(f"  venv: {vp}    weights: {wp}\n")
+        print(f"  dependencies: {dp}    weights: {wp}\n")
         for i, (label, _) in enumerate(MENU, 1):
             print(f"  [{i}] {label}")
         print("  [0] Exit")

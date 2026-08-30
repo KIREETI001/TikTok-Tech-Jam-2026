@@ -1,10 +1,12 @@
 """Inference API for the AI-vs-real image detector.
 
-Two endpoints:
+Endpoints:
 
-    POST /predict          image in, calibrated P(AI) out
-    POST /predict/robust   image in, P(AI) under each of the brief's 15
+    POST /predict          one image in, calibrated P(AI) out
+    POST /predict/robust   one image in, P(AI) under each of the brief's 15
                            evaluation conditions out
+    POST /predict/batch    many images in, a P(AI) + verdict table out
+                           (the folder-scoring path the CLI exposes, in the UI)
 
 The second exists because the competition scores
 ``0.5 * AUC_clean + 0.5 * AUC_robust`` -- half the score is behaviour under
@@ -30,6 +32,7 @@ from pathlib import Path
 
 import torch
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from typing import List
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from PIL import Image, UnidentifiedImageError
@@ -99,6 +102,18 @@ def _score(image: Image.Image, condition: str = "clean") -> float:
     transform = build_eval_transform(condition, crop_from_native=crop_from_native)
     tensor = transform(image).unsqueeze(0).to(_DEVICE)
     return float(_probabilities(_MODEL, tensor)[0])
+
+
+@torch.no_grad()
+def _score_many(images: list[Image.Image], chunk: int = 16) -> list[float]:
+    """P(AI) for a list of images (clean condition), batched."""
+    crop_from_native = bool(_META.get("crop_from_native", False))
+    transform = build_eval_transform("clean", crop_from_native=crop_from_native)
+    out: list[float] = []
+    for i in range(0, len(images), chunk):
+        batch = torch.stack([transform(im) for im in images[i : i + chunk]]).to(_DEVICE)
+        out.extend(_probabilities(_MODEL, batch).float().cpu().tolist())
+    return out
 
 
 async def _upload_bytes(file: UploadFile) -> bytes:
@@ -190,6 +205,55 @@ async def predict_robust(file: UploadFile = File(...)) -> JSONResponse:
             # exactly the property the robust half of the score rewards.
             "spread": spread,
             "threshold": float(_META.get("threshold", 0.5)),
+        }
+    )
+
+
+@app.post("/predict/batch")
+async def predict_batch(files: List[UploadFile] = File(...)) -> JSONResponse:
+    """Calibrated P(AI) + verdict for many images at once.
+
+    The same folder-scoring the CLI does (`pipeline.py predict --input <dir>`),
+    exposed for the UI so a whole set can be checked in one pass. Capped at
+    200 files per request; scored in memory, nothing retained.
+    """
+    _load()
+    if len(files) > 200:
+        raise HTTPException(status_code=413, detail="Max 200 images per batch.")
+
+    names: list[str] = []
+    images: list[Image.Image] = []
+    errors: list[dict] = []
+    for f in files:
+        try:
+            raw = await _upload_bytes(f)
+            images.append(_read_image(raw))
+            names.append(f.filename or f"image_{len(names)}")
+        except HTTPException as exc:
+            errors.append({"filename": f.filename, "error": exc.detail})
+
+    probs = _score_many(images) if images else []
+    thr = float(_META.get("threshold", 0.5))
+    results = [
+        {
+            "filename": n,
+            "p_ai": p,
+            "verdict": "AI-generated" if p >= thr else "authentic",
+            "width": im.width,
+            "height": im.height,
+        }
+        for n, p, im in zip(names, probs, images)
+    ]
+    results.sort(key=lambda r: -r["p_ai"])
+    n_ai = sum(1 for r in results if r["p_ai"] >= thr)
+    return JSONResponse(
+        {
+            "threshold": thr,
+            "count": len(results),
+            "n_ai": n_ai,
+            "n_authentic": len(results) - n_ai,
+            "results": results,
+            "errors": errors,
         }
     )
 

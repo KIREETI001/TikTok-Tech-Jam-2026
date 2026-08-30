@@ -49,6 +49,16 @@
     transition: border-color .15s, background .15s;
   }
   #drop:hover, #drop.over { border-color: var(--accent); background: var(--panel-2); }
+  #bdrop {
+    border: 1.5px dashed var(--line); border-radius: 8px; padding: 1.4rem 1rem;
+    text-align: center; cursor: pointer; color: var(--ink-dim);
+    transition: border-color .15s, background .15s;
+  }
+  #bdrop:hover, #bdrop.over { border-color: var(--accent); background: var(--panel-2); }
+  #bdrop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #btable td.v { text-align: right; font-weight: 600; width: 6rem; }
+  #btable td.v.ai { color: var(--ai); } #btable td.v.real { color: var(--real-ok); }
+  #btable td.f { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #drop.has { padding: .75rem; border-style: solid; }
   #drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   #preview { max-width: 100%; max-height: 260px; border-radius: 6px; display: block; margin: 0 auto; }
@@ -140,6 +150,27 @@
     <tbody id="robustRows"></tbody>
   </table>
   <p class="note" id="spreadNote"></p>
+</div>
+
+<div class="panel" style="margin-top:1rem">
+  <h2>Score many images at once</h2>
+  <div id="bdrop" tabindex="0" role="button" aria-label="Choose images to score">
+    Choose images (or a folder), or drop them here
+  </div>
+  <div class="hint">Up to 200 files per batch. Scored in memory, nothing stored.</div>
+  <input id="bfile" type="file" accept="image/*" multiple hidden>
+  <input id="bdir"  type="file" webkitdirectory hidden>
+  <div style="display:flex; gap:.6rem; margin-top:.8rem">
+    <button id="bpick">Pick files</button>
+    <button id="bpickdir">Pick folder</button>
+    <button id="bcsv" disabled>Download CSV</button>
+  </div>
+  <p class="meta" id="bsummary" style="text-align:left"></p>
+  <div class="err" id="berr" role="alert"></div>
+  <table id="btable" hidden>
+    <thead><tr><th>File</th><th class="g"></th><th style="text-align:right">P(AI)</th><th style="text-align:right">Verdict</th></tr></thead>
+    <tbody id="brows"></tbody>
+  </table>
 </div>
 
 <div class="panel cfg">
@@ -253,6 +284,62 @@ $("robustBtn").addEventListener("click", async () => {
   }
   btn.disabled = false;
   btn.textContent = "Test robustness · 15 conditions";
+});
+
+// ---- batch ----
+const bdrop = $("bdrop"), bfile = $("bfile"), bdir = $("bdir");
+let batchRows = [];
+
+$("bpick").addEventListener("click", () => bfile.click());
+$("bpickdir").addEventListener("click", () => bdir.click());
+bdrop.addEventListener("click", () => bfile.click());
+bdrop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); bfile.click(); } });
+bdrop.addEventListener("dragover", (e) => { e.preventDefault(); bdrop.classList.add("over"); });
+bdrop.addEventListener("dragleave", () => bdrop.classList.remove("over"));
+bdrop.addEventListener("drop", (e) => { e.preventDefault(); bdrop.classList.remove("over"); runBatch(e.dataTransfer.files); });
+bfile.addEventListener("change", () => runBatch(bfile.files));
+bdir.addEventListener("change", () => runBatch(bdir.files));
+
+async function runBatch(fileList) {
+  const files = [...fileList].filter((f) => f.type.startsWith("image/"));
+  $("berr").textContent = "";
+  if (!files.length) { $("berr").textContent = "No image files selected."; return; }
+  if (files.length > 200) { $("berr").textContent = `Too many (${files.length}). Cap is 200 per batch.`; return; }
+  $("bsummary").innerHTML = `<span class="spin"></span> scoring ${files.length} image${files.length > 1 ? "s" : ""}…`;
+  $("btable").hidden = true; $("bcsv").disabled = true;
+  const body = new FormData();
+  files.forEach((f) => body.append("files", f, f.name));
+  try {
+    const r = await fetch(base() + "/predict/batch", { method: "POST", body });
+    if (!r.ok) throw new Error(((await r.json().catch(() => ({}))).detail) || r.statusText);
+    const d = await r.json();
+    batchRows = d.results;
+    $("brows").innerHTML = d.results.map((x) => {
+      const pct = (x.p_ai * 100).toFixed(1);
+      const ai = x.p_ai >= d.threshold;
+      const col = ai ? "var(--ai)" : "var(--real-ok)";
+      return `<tr><td class="f" title="${x.filename}">${x.filename}</td>
+        <td class="g"><div class="mini"><i style="width:${pct}%;background:${col}"></i></div></td>
+        <td class="n">${pct}%</td>
+        <td class="v ${ai ? "ai" : "real"}">${ai ? "AI" : "real"}</td></tr>`;
+    }).join("");
+    $("btable").hidden = false;
+    $("bsummary").textContent =
+      `${d.count} scored · ${d.n_ai} AI-generated, ${d.n_authentic} authentic · threshold ${d.threshold}`
+      + (d.errors.length ? ` · ${d.errors.length} unreadable` : "");
+    $("bcsv").disabled = false;
+  } catch (e) {
+    $("bsummary").textContent = "";
+    $("berr").textContent = String(e.message || e);
+  }
+}
+
+$("bcsv").addEventListener("click", () => {
+  const csv = "filename,probability_ai,verdict,width,height\n"
+    + batchRows.map((x) => `${JSON.stringify(x.filename)},${x.p_ai.toFixed(6)},${x.verdict},${x.width},${x.height}`).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  a.download = "predictions.csv"; a.click();
 });
 
 checkHealth();

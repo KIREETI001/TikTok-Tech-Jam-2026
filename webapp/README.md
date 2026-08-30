@@ -19,10 +19,11 @@ Env: `DETECTOR_CHECKPOINT` (default `runs/latest/best.pt`), `DETECTOR_DEVICE`
 
 | route | returns |
 |---|---|
-| `GET /` | the single-page UI |
+| `GET /` | the single-page UI (single image · robustness grid · batch) |
 | `GET /health` | checkpoint path, device, model type, calibrated threshold |
 | `POST /predict` | `{p_ai, p_authentic, threshold}` for one image |
 | `POST /predict/robust` | `p_ai` under each of the 15 conditions + the spread |
+| `POST /predict/batch` | many images (or a folder) → a P(AI) + verdict table, sorted, with a CSV download. Batched inference, ≤200 files/request. Same result as `python pipeline.py predict --input <dir>`. |
 
 `server.py` reuses `detector.evaluation._probabilities` and
 `detector.transforms.build_eval_transform` / `apply_condition` — the same code

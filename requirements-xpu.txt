@@ -19,3 +19,8 @@ pyarrow==25.0.1
 PyYAML==6.0.3
 tqdm==4.70.0
 python-docx==1.2.0
+
+# webapp/ local demo (optional)
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9

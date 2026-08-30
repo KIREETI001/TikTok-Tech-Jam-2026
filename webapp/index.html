@@ -148,7 +148,7 @@
     <div style="margin-top:1rem">
       <button id="robustBtn" class="primary" disabled>Test robustness &nbsp;&middot;&nbsp; 15 conditions</button>
     </div>
-    <p class="note">The competition scores <strong>half</strong> on clean images and <strong>half</strong> on degraded ones. A detector that only works on pristine uploads solves half the problem.</p>
+    <p class="note">Neural detectors are <strong>decisive by design</strong> — a BCE-trained model pushes its score to near 0 or 1 for any image it can classify, so most results read as "decisive". The meaningful output is the verdict and its rank; the competition scores threshold-free ROC-AUC, not the raw percentage.</p>
   </div>
 </div>
 
@@ -241,18 +241,22 @@ function handle(file) {
 
 function render(d) {
   const p = d.p_ai, thr = d.threshold;
-  const isAI = p >= thr;
-  // "confidence" = how decisive the call is relative to the threshold:
-  // 0 right at the boundary, 1 at a fully certain 0 or 1.
-  const margin = isAI ? (p - thr) / (1 - thr) : (thr - p) / thr;
-  const band = margin < 0.2 ? "borderline" : margin < 0.55 ? "moderate confidence" : "high confidence";
+  const isAI = d.verdict === "AI-generated";
 
   const call = $("call");
   call.textContent = isAI ? "AI-generated" : "Authentic";
   call.className = "call " + (isAI ? "ai" : "real");
 
-  $("conf").textContent =
-    `${band} · P(AI) ${(p * 100).toFixed(1)}% , P(authentic) ${((1 - p) * 100).toFixed(1)}%`;
+  // The detector is decisive by design (BCE-trained logits are large), so the
+  // raw probability is near 0 or 1 for clear images. Report the qualitative
+  // band the server computed from the logit magnitude, and only surface a
+  // precise percentage when the call is actually close.
+  const word = { decisive: "Decisive", clear: "Clear", borderline: "Borderline" }[d.confidence] || "";
+  let line;
+  if (d.confidence === "decisive")   line = `${word} — the model finds this clearly ${isAI ? "AI-generated" : "authentic"}.`;
+  else if (d.confidence === "clear") line = `${word} — ${isAI ? "AI-generated" : "authentic"}, P(AI) ${(p * 100).toFixed(0)}%.`;
+  else                               line = `${word} — P(AI) ${(p * 100).toFixed(0)}%, close to the ${(thr * 100).toFixed(0)}% decision line.`;
+  $("conf").textContent = line;
 
   $("bar").style.left = (p * 100) + "%";
   const tm = $("thrMark");
@@ -273,7 +277,7 @@ async function predict() {
     if (!r.ok) throw new Error(((await r.json().catch(() => ({}))).detail) || r.statusText);
     const d = await r.json();
     render(d);
-    $("meta").textContent = `${d.width}×${d.height} · flagged AI when P(AI) ≥ ${d.threshold} (calibrated on held-out generators)`;
+    $("meta").textContent = `${d.width}×${d.height} · logit ${d.logit.toFixed(1)} · flagged AI when P(AI) ≥ ${d.threshold}`;
     $("robustBtn").disabled = false;
   } catch (e) {
     $("conf").textContent = "";
@@ -342,7 +346,7 @@ async function runBatch(fileList) {
     batchRows = d.results;
     $("brows").innerHTML = d.results.map((x) => {
       const pct = (x.p_ai * 100).toFixed(1);
-      const ai = x.p_ai >= d.threshold;
+      const ai = x.verdict === "AI-generated";
       const col = ai ? "var(--ai)" : "var(--real-ok)";
       return `<tr><td class="f" title="${x.filename}">${x.filename}</td>
         <td class="g"><div class="mini"><i style="width:${pct}%;background:${col}"></i></div></td>
@@ -351,7 +355,7 @@ async function runBatch(fileList) {
     }).join("");
     $("btable").hidden = false;
     $("bsummary").textContent =
-      `${d.count} scored · ${d.n_ai} AI-generated, ${d.n_authentic} authentic · threshold ${d.threshold}`
+      `${d.count} scored · ${d.n_ai} AI-generated, ${d.n_authentic} authentic`
       + (d.errors.length ? ` · ${d.errors.length} unreadable` : "");
     $("bcsv").disabled = false;
   } catch (e) {

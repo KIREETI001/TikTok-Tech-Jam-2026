@@ -26,6 +26,7 @@ Run locally:
 from __future__ import annotations
 
 import io
+import math
 import os
 import sys
 from pathlib import Path
@@ -95,6 +96,32 @@ def _read_image(raw: bytes) -> Image.Image:
         raise HTTPException(status_code=400, detail=f"Not a readable image: {exc}") from exc
 
 
+# Temperature for the reported probability. The detector's raw logits are
+# large (median |logit| ~ 7.7 on held-out data) -- typical for a neural
+# classifier trained with BCE, and why the competition scores threshold-free
+# ROC-AUC rather than probability accuracy. T > 1 softens the probability
+# without changing any verdict or the ranking. Fitted on withheld generators.
+TEMPERATURE = float(os.environ.get("DETECTOR_TEMPERATURE", "1.33"))
+
+
+def _confidence(logit: float) -> str:
+    """A qualitative band from the logit magnitude (calibration-free)."""
+    a = abs(logit)
+    if a >= 4.0:   # p < 1.8%% or > 98.2%%
+        return "decisive"
+    if a >= 1.5:   # p < 18%% or > 82%%
+        return "clear"
+    return "borderline"
+
+
+@torch.no_grad()
+def _logit(tensor: torch.Tensor) -> torch.Tensor:
+    out = _MODEL(tensor)
+    if out.ndim == 2 and out.shape[1] == 1:
+        out = out[:, 0]
+    return out
+
+
 @torch.no_grad()
 def _score(image: Image.Image, condition: str = "clean") -> float:
     """P(AI) for one image under one evaluation condition."""
@@ -105,14 +132,15 @@ def _score(image: Image.Image, condition: str = "clean") -> float:
 
 
 @torch.no_grad()
-def _score_many(images: list[Image.Image], chunk: int = 16) -> list[float]:
-    """P(AI) for a list of images (clean condition), batched."""
+def _score_many(images: list[Image.Image], chunk: int = 16) -> list[tuple[float, float]]:
+    """(temperature-scaled P(AI), raw logit) per image, clean condition, batched."""
     crop_from_native = bool(_META.get("crop_from_native", False))
     transform = build_eval_transform("clean", crop_from_native=crop_from_native)
-    out: list[float] = []
+    out: list[tuple[float, float]] = []
     for i in range(0, len(images), chunk):
         batch = torch.stack([transform(im) for im in images[i : i + chunk]]).to(_DEVICE)
-        out.extend(_probabilities(_MODEL, batch).float().cpu().tolist())
+        for lg in _logit(batch).float().cpu().tolist():
+            out.append((1.0 / (1.0 + math.exp(-lg / TEMPERATURE)), lg))
     return out
 
 
@@ -162,12 +190,20 @@ async def predict(file: UploadFile = File(...)) -> JSONResponse:
     """
     _load()
     image = _read_image(await _upload_bytes(file))
-    probability = _score(image)
+    crop_from_native = bool(_META.get("crop_from_native", False))
+    tensor = build_eval_transform("clean", crop_from_native=crop_from_native)(image).unsqueeze(0).to(_DEVICE)
+    logit = float(_logit(tensor)[0])
+    probability = 1.0 / (1.0 + math.exp(-logit / TEMPERATURE))
+    thr = float(_META.get("threshold", 0.5))
+    verdict = "AI-generated" if logit >= math.log(thr / (1.0 - thr)) else "authentic"
     return JSONResponse(
         {
             "p_ai": probability,
             "p_authentic": 1.0 - probability,
-            "threshold": float(_META.get("threshold", 0.5)),
+            "logit": logit,
+            "verdict": verdict,
+            "confidence": _confidence(logit),
+            "threshold": thr,
             "width": image.width,
             "height": image.height,
         }
@@ -234,20 +270,22 @@ async def predict_batch(files: List[UploadFile] = File(...)) -> JSONResponse:
         except HTTPException as exc:
             errors.append({"filename": f.filename, "error": exc.detail})
 
-    probs = _score_many(images) if images else []
+    scored = _score_many(images) if images else []
     thr = float(_META.get("threshold", 0.5))
+    logit_thr = math.log(thr / (1.0 - thr))          # verdict in raw-logit space
     results = [
         {
             "filename": n,
-            "p_ai": p,
-            "verdict": "AI-generated" if p >= thr else "authentic",
+            "p_ai": p,                                # temperature-scaled, for display
+            "verdict": "AI-generated" if lg >= logit_thr else "authentic",
+            "confidence": _confidence(lg),
             "width": im.width,
             "height": im.height,
         }
-        for n, p, im in zip(names, probs, images)
+        for n, (p, lg), im in zip(names, scored, images)
     ]
     results.sort(key=lambda r: -r["p_ai"])
-    n_ai = sum(1 for r in results if r["p_ai"] >= thr)
+    n_ai = sum(1 for r in results if r["verdict"] == "AI-generated")
     return JSONResponse(
         {
             "threshold": thr,

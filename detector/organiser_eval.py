@@ -5,12 +5,12 @@ generator.
     python -m detector.organiser_eval <checkpoint> <real_dir> <fake_dir> [--out report.md]
 
 ``fake_dir`` filenames must start with ``<Generator>_`` (that is how
-scratchpad/wildfake_fetch.py names them) so per-generator rows can be split
+the WildFake fetch helper names them) so per-generator rows can be split
 out. AUC_robust is the mean AUC across the 14 transformed conditions in
 detector.transforms.CONDITION_SPECS, matching detector.evaluation.
 
-*** This runs against evaluation-only data (see EVAL_ONLY_DATASETS.md). It
-only ever reads. ***
+*** This runs against evaluation-only data (staged under ``eval_only_*``). It
+only ever reads it. ***
 """
 
 from __future__ import annotations

@@ -10,11 +10,11 @@ set -euo pipefail
 
 CKPT="${1:?usage: finalize.sh <checkpoint> <tag>}"
 TAG="${2:?usage: finalize.sh <checkpoint> <tag>}"
-PY="C:/Users/attil/ttj-venv26/Scripts/python.exe"
-D="C:/Users/attil/ttj-data"
+PY="${PYTHON:-python}"
+D="${TTJ_DATA:-./data}"
 
-export SYCL_CACHE_PERSISTENT=1 SYCL_CACHE_DIR="C:/Users/attil/ttj-cache/sycl26"
-export HF_HOME="C:/Users/attil/ttj-cache/hf" HF_HUB_DISABLE_SYMLINKS_WARNING=1 PYTHONUNBUFFERED=1
+export SYCL_CACHE_PERSISTENT=1 SYCL_CACHE_DIR="${SYCL_CACHE_DIR:-$HOME/.cache/sycl}"
+export HF_HOME="${HF_HOME:-$HOME/.cache/huggingface}" HF_HUB_DISABLE_SYMLINKS_WARNING=1 PYTHONUNBUFFERED=1
 filt() { grep --line-buffered -vE "UserWarning|warnings.warn|symlinks|Developer Mode|unauthenticated|degraded" || true; }
 run() { MSYS_NO_PATHCONV=1 "$PY" "$@"; }
 
@@ -28,7 +28,7 @@ report_dirs=""
 for name in fs dragon_unseen organiser; do
     echo "=== [$TAG] EVAL $name @ $(date) ==="
     out="runs/${TAG}_${name}"; mkdir -p "$out"
-    run pipeline.py evaluate --device xpu --run-dir "$out" --checkpoint "$CKPT" --data "${SETS[$name]}" 2>&1 | filt
+    run pipeline.py evaluate --device "${DEVICE:-auto}" --run-dir "$out" --checkpoint "$CKPT" --data "${SETS[$name]}" 2>&1 | filt
     report_dirs="$report_dirs ${name}:$out"
 done
 

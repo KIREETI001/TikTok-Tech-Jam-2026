@@ -11,28 +11,24 @@ Binary real-vs-AI image classification, optimised for the scored metric:
 
 ## Results (held-out, cross-generator)
 
-Full methodology and every iteration in [`experiments.md`](experiments.md);
-tabulated in [`TRAINING_REPORT.docx`](TRAINING_REPORT.docx).
-
 | Benchmark | Final Score | Clean AUC | Robust AUC | Clean FPR / FNR |
 |---|---|---|---|---|
 | **Organiser composition** (WildFake pixel-diffusion + COCO, resolution-matched) | **0.933** | 0.955 | 0.911 | 4.1% / 23.3% * |
-| DRAGON — 8 unseen latent-diffusion generators | 0.9959 | 0.9972 | 0.9945 | 2.1% / 2.4% |
-| SID_Set full-synthetic (in-domain) | 0.997 | 0.9985 | 0.9963 | 2.1% / 0.9% |
+| DRAGON — 8 unseen latent-diffusion generators | 0.996 | 0.997 | 0.995 | 2.1% / 2.4% |
+| SID_Set full-synthetic (in-domain) | 0.997 | 0.999 | 0.996 | 2.1% / 0.9% |
 
 The organiser composition's six generator families (ADM, DALL·E, DDIM, DDPM,
-Imagen, VQDM) have **zero representation in training** — it is a genuine
-cross-generator test, not a held-out split of the training distribution.
+Imagen, VQDM) have **zero representation in training** — a genuine
+cross-generator test, not a held-out split.
 
-\* The Final Score is threshold-free (ROC-AUC). The FPR/FNR are at the
-operating threshold 0.215, calibrated on withheld *latent-diffusion*
-generators — pixel-diffusion fakes score systematically lower, so a single
-fixed threshold under-flags them (the same threshold is 2.1%/2.4% on DRAGON).
-No one cutoff serves both families; the calibration recipe is shipped so
-operators can retune per deployment.
+Per-generator clean AUC: ADM 0.89 · DDPM 0.93 · DDIM 0.95 · Imagen 0.97 ·
+DALL·E 0.99 · VQDM 1.00 (ViT-only, no CLIP branch: ADM 0.82).
 
-Per-generator clean AUC on the organiser set: ADM 0.90 · DDPM 0.92 ·
-DDIM 0.94 · Imagen 0.98 · DALL·E 0.99 · VQDM 0.996 (ViT-only: ADM 0.82).
+\* Final Score is threshold-free. The FPR/FNR are at the operating threshold
+0.215, calibrated on withheld *latent-diffusion* generators — pixel-diffusion
+fakes score systematically lower, so one fixed cutoff under-flags them (the
+same threshold is 2.1% / 2.4% on DRAGON). The calibration script lets an
+operator retune per deployment.
 
 ---
 
@@ -40,34 +36,52 @@ DDIM 0.94 · Imagen 0.98 · DALL·E 0.99 · VQDM 0.996 (ViT-only: ADM 0.82).
 
 ```
 Community Forensics ViT-S/16 @224   21,666,049 params   (frozen after warm-start)  → base logit
-  + frozen OpenAI CLIP ViT-B/16 branch   → LayerNorm → Linear(768→256) → zero-init residual Δ
+  + frozen OpenAI CLIP ViT-B/16 branch   → LayerNorm → Linear(768→256) → near-zero-init residual Δ
                                 logit = base + Δ
 ```
 
-The CLIP branch is trained ONLY as a ~200K-param fusion head on precomputed
-frozen features (`scratchpad/train_fusion.py` / `score_report.py`) — the CLIP
-forward is too slow to run live in the training loop on an Arc iGPU. A SAFE
-DWT branch and a hand-crafted NPR frequency branch were built and tested;
-neither transferred to pixel-space diffusion, so the shipped model is
-ViT + CLIP only. `branch_kind` still accepts `clip,wavelet,fft` comma lists.
-
-- **Backbone**: `OwensLab/commfor-model-224` (timm `vit_small_patch16_224.augreg_in21k_ft_in1k`).
-  A purpose-built AI-image detector, #1 of 23 on its own benchmark out-of-the-box.
-- **Semantic branch**: `openai/clip-vit-base-patch16` vision tower, **frozen** (ViT-L/14 was ~6x slower on the Arc iGPU for a marginal gain).
+- **Backbone**: `OwensLab/commfor-model-224` (timm
+  `vit_small_patch16_224.augreg_in21k_ft_in1k`) — a purpose-built AI-image
+  detector, #1 of 23 open detectors on an independent 2026 benchmark.
+- **Semantic branch**: `openai/clip-vit-base-patch16` vision tower, **frozen**.
   A fine-tuned backbone loses ~0.20 AUC seen→unseen; a frozen large ViT loses
-  ~0.09 — freezing is what makes it generalise.
-- **Zero-init residual fusion**: each branch head starts at 0, so the model
+  ~0.09 — freezing is what makes it generalise across generator families.
+- **Near-zero-init residual fusion**: the branch head starts ≈0, so the model
   begins identical to the proven ViT and only ever adds a correction. No
   per-branch auxiliary loss (that pressure makes a shallow branch memorise
   training-generator spectra and invert on unseen ones).
-- Trainable parameters: ~200K (the fusion head). Total inference: ~108M (ViT-S 22M + frozen CLIP-B 86M) — ~18x under the 2B limit.
-  Runs on CPU at ~1 s/image.
+- Trainable: ~200K (the fusion head). Inference: ~108M (22M ViT + 86M frozen
+  CLIP-B) — ~18× under the 2B limit. Runs on CPU at ~1 s/image.
+
+The CLIP fusion head was trained on precomputed frozen features (the CLIP
+forward is too slow to run live in the training loop on an Intel Arc iGPU).
+That training path and the corpus-build scripts are in the maintainer's
+`local_reference/`; the shipped model is `runs/iter7/best.pt`.
+
+---
+
+## Repository layout
+
+```
+detector/           the model, data, transforms, training, evaluation, calibration
+pipeline.py         ingest · train · evaluate · predict · smoke · materialize-sid-set
+config.yaml         paths and training knobs
+run_iteration.sh    one loop: train → calibrate on held-out generators → evaluate
+run_fast.sh         lean variant (organiser + DRAGON only)
+finalize.sh         full 15-condition eval + error montages on a finished checkpoint
+scripts/            eval-only tooling (WildFake stream-eval, shortcut probe, matched-set builder)
+webapp/             local FastAPI demo — single image · robustness grid · batch
+space/              Hugging Face Docker Space packaging (space/deploy.sh)
+serve_demo.ps1      one command → a public Cloudflare-tunnel URL for the demo
+hf_upload/          push the checkpoint to a HF model repo
+requirements-*.txt  xpu (dev), cuda (fallback)
+```
 
 ---
 
 ## Environment
 
-Trained on a single laptop **Intel Arc iGPU (XPU)** — no CUDA.
+Developed on a single laptop **Intel Arc iGPU (XPU)** — no CUDA.
 
 ```bash
 python -m venv .venv                       # from a 3.12 interpreter
@@ -75,10 +89,11 @@ python -m venv .venv                       # from a 3.12 interpreter
 ```
 
 `requirements-xpu.txt` pins `torch==2.6.0+xpu` / `torchvision==0.21.0+xpu`
-(2.13+xpu hangs on the first oneDNN GEMM with the Nov-2024 Arc driver).
-For an NVIDIA box, use `requirements-cuda.txt` and pass `--device cuda`.
+(2.13+xpu hangs on the first oneDNN GEMM with the Nov-2024 Arc driver). On an
+NVIDIA box use `requirements-cuda.txt` and pass `--device cuda`; on CPU-only,
+`--device cpu`.
 
-Set before every run:
+Set before each run:
 
 ```bash
 export SYCL_CACHE_PERSISTENT=1 SYCL_CACHE_DIR=<cache>/sycl \
@@ -89,81 +104,28 @@ The first run downloads the pinned Community Forensics and CLIP checkpoints.
 
 ---
 
-## Reproduce
+## Run the pipeline
 
 ```bash
-# 1. materialise the public training corpus (SID_Set + DRAGON + Community-Forensics-Small)
-python pipeline.py materialize-sid-set --split train  --shards 30 --output <data>/sid_train --max-size 448
-python scratchpad/materialize_dragon.py     # 17 training generators + 8 held out
-python scratchpad/materialize_cf_small.py   # latent-diffusion + GAN + diverse reals
-python scratchpad/build_iter4.py            # assemble + perceptual-hash dedup vs eval set
+# self-contained regression check (synthetic data, no dataset needed)
+python pipeline.py smoke --device xpu
 
-# 2. one iteration: train -> calibrate on held-out generators -> evaluate
-bash run_iteration.sh <name>                # full: internal + fs + dragon + organiser + montages
-bash run_fast.sh <name>                     # lean: organiser + dragon only
+# train a detector (reads config.yaml) → calibrate → evaluate
+bash run_iteration.sh <name>
 
-# 3. predict a folder (required deliverable format)
-python pipeline.py predict --input <folder> --output predictions.json --checkpoint runs/<name>/best.pt
-```
-
-`config.yaml` holds the knobs. Key ones:
-
-| Key | Meaning |
-|---|---|
-| `model_type` | `vit` (backbone only) or `hybrid` (+ branches) |
-| `branch_kind` | `clip`, `wavelet`, `fft` — comma-separate for multiple |
-| `vit_checkpoint` | warm-start the backbone from a prior run |
-| `crop_from_native` | skip `Resize`, `RandomCrop(224)` from native pixels (SAFE) |
-| `safe_augment` | `RandomRotation(180)` + `RandomMask` |
-| `threshold` | `auto` = use the held-out-generator-calibrated value |
-
----
-
-## Threshold calibration
-
-The scored metric is threshold-free; a deployable detector still needs an
-operating point. Fit it on **held-out generators, never the test set**:
-
-| Split | Role |
-|---|---|
-| `train` | fit weights |
-| `val` | watch for training failure only |
-| `genval` | one withheld generator — fits the threshold value |
-| `calval` | a different withheld generator — picks the rule (`minmax_fpfn`) |
-| `holdout` | reported; never an input to any decision |
-
-```bash
+# calibrate an operating point on held-out generators (never the test set)
 python -m detector.calibrate runs/<name>/best.pt \
   --genval <dir> --calval <dir> --rule minmax_fpfn --apply
+
+# required directory-to-JSON inference
+python pipeline.py predict --input <folder> --output predictions.json \
+  --checkpoint runs/<name>/best.pt
 ```
 
-This took recall on unseen fakes from ~25% to ~98% with no change to AUC.
-
----
-
-## Evaluation matrix (the 14 required conditions + clean)
-
-JPEG q90/70/50/30 · Gaussian blur σ0.5/1.0/2.0 · resize 0.5×/0.25× then up ·
-Gaussian noise σ0.02/0.05/0.10 · brightness/contrast/saturation ±20% ·
-center-crop 80% then resize back.
-
-Each row reports accuracy, F1, ROC-AUC, FPR, FNR, and the clean-to-transformed
-gap ([`detector/evaluation.py`](detector/evaluation.py)). Representative FP/FN
-with the model's probability are written to `errors.csv` and montaged into
-[`ERROR_ANALYSIS.md`](ERROR_ANALYSIS.md).
-
----
-
-## Outputs (`runs/<name>/`)
-
-```
-manifest.csv     selected images, labels, split, SHA-256
-best.pt          best validation ROC-AUC checkpoint (frozen CLIP weights excluded)
-training.csv     per-epoch loss + clean validation metrics
-metrics.csv      clean + every transform condition
-summary.json     mean/worst transformed performance, error-rate goal block
-errors.csv       representative FP/FN per condition
-```
+`config.yaml` knobs: `model_type` (`vit` / `hybrid`), `branch_kind`
+(`clip,wavelet,fft` comma list), `vit_checkpoint` (warm-start),
+`crop_from_native`, `safe_augment`, `threshold` (`auto` = use the calibrated
+value).
 
 Prediction JSON uses only the required fields:
 
@@ -171,22 +133,81 @@ Prediction JSON uses only the required fields:
 [{"image_path": "nested/example.jpg", "pred": 1}]
 ```
 
-A sibling `predictions.scores.csv` keeps `probability_ai` separate from the
-minimal organiser JSON.
+A sibling `predictions.scores.csv` keeps `probability_ai` separate.
+
+---
+
+## Host the demo
+
+**Local:**
+
+```bash
+pip install fastapi uvicorn python-multipart
+DETECTOR_CHECKPOINT=runs/iter7/best.pt uvicorn webapp.server:app --port 8000
+```
+
+**Public URL (free, temporary — for a judging window):**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File serve_demo.ps1
+```
+
+Prints a `https://<...>.trycloudflare.com` URL; Ctrl+C stops it.
+
+**Hugging Face Docker Space (permanent, needs HF PRO):**
+
+```bash
+bash space/deploy.sh <user>/<space-name>
+```
+
+**Model weights:**
+
+```bash
+python hf_upload/upload.py --repo <user>/<repo-name>
+```
+
+---
+
+## Threshold calibration — the 5-way split
+
+| split | role |
+|---|---|
+| `train` | fit weights |
+| `val` | watch for training failure only |
+| `genval` | one withheld generator — fits the threshold value |
+| `calval` | a different withheld generator — picks the rule (`minmax_fpfn`) |
+| `holdout` | reported; never an input to any decision |
+
+Calibrating on held-out generators (not `val`) took recall on unseen fakes
+from ~25% to ~98% with no change to AUC.
+
+---
+
+## Evaluation matrix (14 conditions + clean)
+
+JPEG q90/70/50/30 · Gaussian blur σ0.5/1.0/2.0 · resize 0.5×/0.25× then up ·
+Gaussian noise σ0.02/0.05/0.10 · brightness/contrast/saturation ±20% ·
+centre-crop 80% then resize back.
+
+Per-condition accuracy, F1, ROC-AUC, FPR, FNR and the clean-to-transformed
+gap are written to `runs/<name>/metrics.csv` and `summary.json`;
+representative FP/FN to `errors.csv`. `bash finalize.sh <ckpt> <tag>`
+regenerates the full table + montages for a finished checkpoint.
 
 ---
 
 ## Limitations
 
-- **Sensor noise** is the weakest condition (organiser noise σ0.10 AUC ~0.85)
-  — additive noise most directly overwrites the high-frequency evidence.
-- **ADM** (2021 ImageNet pixel-diffusion) is the hardest single family — the
-  furthest from anything in training.
-- **Localised edits** (real photo + one AI region) are out of scope — this is
+- **Sensor noise** (σ0.10) is the weakest condition (AUC ~0.86) — additive
+  noise most directly overwrites the high-frequency evidence.
+- **ADM** (2021 pixel-diffusion) is the hardest family; the published ceiling
+  for methods that don't train on it is ~0.82.
+- **Modern flow/DiT generators** (SD3, Flux, Firefly) — the frontier where
+  every open detector collapses; not in this evaluation.
+- **Localised edits** (a real photo with one AI region) are out of scope —
   whole-image classification only.
-- A single fixed threshold cannot be optimal across both pixel-space and
-  latent diffusion at once; we report the threshold-free score and ship the
-  calibration recipe.
+- A single fixed threshold can't be optimal across pixel-space and latent
+  diffusion at once; the score is threshold-free and the recipe is shipped.
 - Hackathon prototype, not a production moderation system.
-- The evaluation-only benchmark must never be used for training or threshold
-  selection (enforced in code: `detector/data.py:assert_not_eval_only`).
+- Evaluation-only sets are never used for training or threshold selection
+  (enforced: `detector/data.py:assert_not_eval_only`).

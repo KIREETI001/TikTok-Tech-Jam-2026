@@ -1,28 +1,18 @@
-# === TikTok TechJam PS5 detector -- iteration config ===
-# Machine: Intel Arc iGPU (XPU, torch 2.6.0+xpu venv at C:\Users\attil\ttj-venv26),
-# public data only. See experiments.md section 9 for the environment pivot.
+# === TikTok TechJam PS5 detector -- training config ===
 #
-# This file reproduces the iteration-4 baseline: Community Forensics ViT-S,
-# organiser Final Score 0.9126 on the resolution-matched WildFake+COCO set.
-# The hybrid + frozen-CLIP branch (experiments.md 9l) is trained separately
-# via the fusion-head path -- see scratchpad/train_fusion.py -- because the
-# CLIP forward is too slow to run live in the training loop on this iGPU.
-#
-# MERGE NOTE (this device, CUDA laptop): data_dir below is the path on the
-# teammate's machine and does not exist here -- rebuild iter4_train locally
-# before training (see scratchpad/build_iter4.py) or point data_dir at
-# wherever the equivalent corpus lands on this box. Everything else in this
-# file (SAFE flags, branch_kind, select_metric) applies unchanged; num_workers
-# can go higher than the streamed-source runs used, since data_source: local
-# reads a materialized folder rather than re-fetching HF shards per epoch.
+# Reproduces the iteration-4 baseline: Community Forensics ViT-S, organiser
+# Final Score 0.913 on the resolution-matched WildFake+COCO set. The shipped
+# model (0.933) adds a frozen CLIP-B branch trained separately as a fusion
+# head on precomputed features -- see the maintainer's local_reference/ (the
+# CLIP forward is too slow to run live in the training loop on an Arc iGPU).
 
 data_source: local
-# iter4: iter3_train (SID full_synthetic + 17 DRAGON generators) +
+# Training corpus: SID full-synthetic + 17 DRAGON generators +
 # Community-Forensics-Small (many latent-diffusion + GAN generators; real from
-# LAION/ImageNet/CelebA/COCO, perceptual-hash deduped against the eval set by
-# scratchpad/build_iter4.py). No pixel-space diffusion in training, so the
-# organiser score stays a genuine cross-generator test.
-data_dir: C:/Users/attil/ttj-data/iter4_train
+# LAION/ImageNet/CelebA/COCO, perceptual-hash deduped against the eval set).
+# No pixel-space diffusion in training -> the organiser score is a genuine
+# cross-generator test. Point data_dir at your materialised corpus root.
+data_dir: ./data/train
 output_dir: runs/iter4
 
 # model_type: "vit" (Community Forensics alone) or "hybrid" (+ branches chosen
@@ -42,7 +32,7 @@ weight_decay: 0.01
 num_workers: 8
 
 # iter4_train is ~61k images. Each epoch draws a fresh class-balanced 24k
-# from the pool (~7 min/epoch on the Arc iGPU).
+# from the pool.
 samples_per_epoch: 24000
 
 train_augment_probability: 0.8
@@ -54,7 +44,7 @@ crop_from_native: false
 # safe_augment: RandomRotation(180) + RandomMask 16px patches up to 75% (SAFE).
 safe_augment: false
 
-# --- objective alignment (experiments.md 9c-9h) ---
+# --- objective alignment ---
 select_metric: roc_auc
 loss_pos_weight: 1.0
 balance_classes: true

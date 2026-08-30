@@ -13,8 +13,16 @@ runs/
 artifacts/
 *.pt
 *.pth
-predictions*.json
-predictions*.csv
+*predictions*.json
+*predictions*.csv
+
+# Reference / analysis material lives outside the repo (../local_reference/).
+# Pipeline scripts regenerate these locally; they are not tracked.
+local_reference/
+ERROR_ANALYSIS.md
+errors_*.png
+*.docx
+reports/
 
 .env
 .env.*

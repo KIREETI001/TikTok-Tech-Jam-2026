@@ -21,7 +21,7 @@ diversity beyond what SID_Set alone provides -- specifically several
 distilled/fast diffusion variants (LCM, SDXL Turbo/Lightning, Hyper-SD)
 not represented in either PS5 or SID_Set. DRAGON is fake-only (no real
 class), so it only adds to the fake side of the combined pool -- see
-experiments.md section 7 for the resulting class-balance note.
+the maintainer notes for the resulting class-balance note.
 """
 
 from __future__ import annotations

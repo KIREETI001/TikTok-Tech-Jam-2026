@@ -21,6 +21,8 @@ artifacts/
 local_reference/
 ERROR_ANALYSIS.md
 errors_*.png
+!docs/ERROR_ANALYSIS.md
+!docs/errors_*.png
 *.docx
 reports/
 

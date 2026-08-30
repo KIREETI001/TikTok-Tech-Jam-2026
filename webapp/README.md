@@ -12,7 +12,7 @@ DETECTOR_CHECKPOINT=runs/iter7/best.pt uvicorn webapp.server:app --port 8000
 # open http://localhost:8000
 ```
 
-Env: `DETECTOR_CHECKPOINT` (default `runs/latest/best.pt`), `DETECTOR_DEVICE`
+Env: `DETECTOR_CHECKPOINT` (default `runs/iter7/best.pt`), `DETECTOR_DEVICE`
 (`auto` → XPU/CUDA/CPU), `ALLOW_ORIGINS`.
 
 ## Endpoints

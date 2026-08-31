@@ -148,6 +148,26 @@ button.primary:hover:not(:disabled){background:#63BECD;border-color:#63BECD}
   font-variant-numeric:tabular-nums;font-weight:500}
 .legend b{color:var(--print);font-weight:600}
 
+/* ---------- folder results ---------- */
+.bgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(146px,1fr));
+  gap:12px;margin-top:16px}
+.bcard{border:1px solid var(--edge);border-radius:var(--r-out);background:var(--sheet);
+  padding:8px;opacity:0;animation:in 300ms cubic-bezier(.22,1,.36,1) forwards}
+.bcard.ai{border-color:rgba(226,112,58,.55)}
+.bcard.real{border-color:rgba(79,168,184,.45)}
+.bcard img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:var(--r-in);
+  display:block;background:var(--sheet-2)}
+.bcard .fn{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--dim);
+  margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bcard .row{display:flex;align-items:center;justify-content:space-between;
+  gap:6px;margin-top:5px}
+.bcard .p{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:500;
+  font-variant-numeric:tabular-nums}
+.bcard.ai .p{color:var(--halide)} .bcard.real .p{color:var(--fixer)}
+.bcard .v{font-size:10px;letter-spacing:.04em;text-transform:uppercase;
+  font-family:'IBM Plex Mono',monospace}
+.bcard.ai .v{color:var(--halide)} .bcard.real .v{color:var(--fixer)}
+
 /* ---------- secondary ---------- */
 details{border-top:1px solid var(--edge);padding:20px 0}
 summary{cursor:pointer;font-weight:600;font-size:15px;list-style:none;
@@ -216,10 +236,7 @@ footer{border-top:1px solid var(--edge);padding:26px 0 46px;color:var(--dim);
       </div>
       <p class="meta" id="bsummary"></p>
       <div class="err" id="berr" role="alert"></div>
-      <table id="btable" hidden>
-        <thead><tr><th>File</th><th style="text-align:right">P(AI)</th><th style="text-align:right">Verdict</th></tr></thead>
-        <tbody id="brows"></tbody>
-      </table>
+      <div class="bgrid" id="bgrid"></div>
     </div>
   </details>
 
@@ -453,7 +470,7 @@ async function runGauntlet() {
 
 /* ---------- batch ---------- */
 const bdrop = $("bdrop"), bfile = $("bfile"), bdir = $("bdir");
-let batchRows = [];
+let batchRows = [], batchUrls = [];
 $("bpick").addEventListener("click", () => bfile.click());
 $("bpickdir").addEventListener("click", () => bdir.click());
 bdrop.addEventListener("click", () => bfile.click());
@@ -479,24 +496,49 @@ async function scoreMany(list) {
     if (!r.ok) throw new Error(((await r.json().catch(() => ({}))).detail) || r.statusText);
     const d = await r.json();
     batchRows = d.results;
-    const tb = $("brows"); tb.innerHTML = "";
-    d.results.forEach((row) => {
+
+    // Thumbnails come from the files already in the browser, so showing them
+    // costs nothing over the wire. Revoke the previous batch's URLs first --
+    // 200 un-revoked object URLs is a real leak.
+    batchUrls.forEach(URL.revokeObjectURL);
+    batchUrls = [];
+    const byName = new Map();
+    files.forEach((f) => { if (!byName.has(f.name)) byName.set(f.name, f); });
+
+    const grid = $("bgrid"); grid.innerHTML = "";
+    d.results.forEach((row, i) => {
       const isAI = row.verdict === "AI-generated";
-      const tr = document.createElement("tr");
-      const td1 = document.createElement("td"); td1.textContent = row.filename;
-      const td2 = document.createElement("td"); td2.className = "n"; td2.textContent = pct(row.p_ai);
-      const td3 = document.createElement("td");
-      td3.className = "n " + (isAI ? "ai" : "real"); td3.textContent = row.verdict;
-      tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
-      tb.appendChild(tr);
+      const card = document.createElement("div");
+      card.className = "bcard " + (isAI ? "ai" : "real");
+      card.style.animationDelay = Math.min(i, 40) * 18 + "ms";
+
+      const src = byName.get(row.filename);
+      const im = document.createElement("img");
+      im.alt = row.filename;
+      im.loading = "lazy";
+      if (src) { const u = URL.createObjectURL(src); batchUrls.push(u); im.src = u; }
+      card.appendChild(im);
+
+      const fn = document.createElement("div");
+      fn.className = "fn"; fn.textContent = row.filename; fn.title = row.filename;
+      card.appendChild(fn);
+
+      const r = document.createElement("div"); r.className = "row";
+      const pv = document.createElement("span"); pv.className = "p"; pv.textContent = pct(row.p_ai);
+      const vd = document.createElement("span"); vd.className = "v";
+      vd.textContent = isAI ? "AI" : "authentic";
+      r.appendChild(pv); r.appendChild(vd);
+      card.appendChild(r);
+      grid.appendChild(card);
     });
-    $("btable").hidden = false;
     $("bsummary").textContent =
       d.count + " scored · " + d.n_ai + " AI-generated · " + d.n_authentic + " authentic" +
-      (d.errors.length ? " · " + d.errors.length + " skipped" : "");
+      (d.errors.length ? " · " + d.errors.length + " skipped" : "") +
+      " — ordered most-likely-AI first";
     $("bcsv").disabled = false;
   } catch (e) {
-    $("bsummary").textContent = ""; $("berr").textContent = String(e.message || e);
+    $("bsummary").textContent = ""; $("bgrid").innerHTML = "";
+    $("berr").textContent = String(e.message || e);
   }
 }
 

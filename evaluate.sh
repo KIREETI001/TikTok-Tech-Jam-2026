@@ -4,29 +4,29 @@
 # machine (Python path, data dir, XPU device, SYCL env vars) and cannot run
 # here as-is.
 #
-#   bash finalize_local.sh <checkpoint.pt> <tag>
+#   bash evaluate.sh <checkpoint.pt> <tag>
 #
 # Produces, under runs/<tag>_*/:
 #   - 15-condition robustness metrics on three held-out sets:
 #       sidset      -- ../Data/sid_set_eval_test (materialized earlier this
 #                       session; mixed full_synthetic + tampered, unlike the
 #                       filtered training corpus -- labelled as such below)
-#       dragon      -- ../iter5_data/dragon_holdout (8 DRAGON generators
-#                       never in training; scripts/build_iter5_corpus.py)
+#       dragon      -- ../detector_data/dragon_holdout (8 DRAGON generators
+#                       never in training; scripts/build_corpus.py)
 #       organiser   -- runs/wildfake_matched (resolution-shortcut-free
-#                       WildFake+COCO; scripts/build_matched_eval_local.py)
+#                       WildFake+COCO; scripts/build_eval_set.py)
 #   - per-generator ROC-AUC on the organiser set
 #   - ERROR_ANALYSIS.md with FP/FN montages
 #   - a compact scoreboard across all three
 set -euo pipefail
 
-CKPT="${1:?usage: finalize_local.sh <checkpoint> <tag>}"
-TAG="${2:?usage: finalize_local.sh <checkpoint> <tag>}"
+CKPT="${1:?usage: evaluate.sh <checkpoint> <tag>}"
+TAG="${2:?usage: evaluate.sh <checkpoint> <tag>}"
 PY="./.venv/Scripts/python.exe"
 
 declare -A SETS=(
   [sidset]="../Data/sid_set_eval_test"
-  [dragon]="../iter5_data/dragon_holdout"
+  [dragon]="../detector_data/dragon_holdout"
   [organiser]="runs/wildfake_matched"
 )
 

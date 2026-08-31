@@ -1,53 +1,23 @@
-# === TikTok TechJam PS5 detector -- iteration 6 config (this device, final-stretch) ===
-# Machine: this device (CUDA, RTX 3050 4GB laptop). History: iter5a (ViT,
-# no warm start, iter3-recipe corpus w/o Community-Forensics-Small, organiser
-# Final 0.8804) and iter5b (+ wavelet branch, did not transfer -- see
-# docs/EXPERIMENTS_LOG.md sections 13-14). Meanwhile the teammate's main
-# branch shipped iter7: 0.933, ViT (NO crop_from_native/safe_augment -- both
-# false in their committed config) + a frozen CLIP-B branch trained
-# separately, on a corpus that includes Community-Forensics-Small and has
-# zero pixel-space diffusion.
+# === TikTok TechJam PS5 -- training configuration ===
 #
-# Hypothesis this iteration tests: crop_from_native+SAFE (this device's
-# validated fix, never applied to iter7's ViT half) and pixel-space
-# diffusion training data (GenImage ADM/GLIDE, also never in iter7's corpus)
-# are independent of the frozen-CLIP-branch mechanism and should stack with
-# it rather than compete. Community-Forensics-Small was skipped for iter5
-# on a wrong read of an incomplete auto-converted HF preview (~10.5k of the
-# real ~556k rows); scripts/probe_cf_small_index.py found the real per-
-# architecture shard files are complete and clean, so it's included here.
+# This file, as committed, is the exact configuration that produced the
+# shipped detector: organiser Final Score 0.9362 (clean AUC 0.9597 / robust
+# AUC 0.9127) on the resolution-matched WildFake+COCO composition.
 #
-# Below: iteration 6a, ViT half only, fresh from Community Forensics
-# pretrained (no warm start -- same reasoning as iter5a: a fresh corpus
-# composition should not inherit a checkpoint tuned on a different one).
-# scripts/build_iter6_corpus.py: SID_Set (30 shards) + DRAGON (17 train
-# generators) + Community-Forensics-Small (6 real + 8 fake shards, spread
-# across LatDiff/GAN/PixDiff/Other/Real) + GenImage ADM/GLIDE. Verified
-# counts: real=26,361 fake=40,141 (66,502 total) -- in line with iter4's
-# own ~61k corpus.
+#   1. python scripts/build_corpus.py           -> ../detector_data/
+#   2. python pipeline.py train --config config.yaml   -> runs/detector/
+#   3. cp runs/detector/best.pt checkpoints/detector.pt
 #
-# iter6a RESULT (docs/EXPERIMENTS_LOG.md section 15): organiser Final
-# 0.9362, already above iter7's 0.933, from training-data + augmentation
-# fixes alone -- no CLIP branch. Beats iter7 outright on ADM (iter7's own
-# weakest generator) and DDIM. SID_Set/DRAGON still trail iter7's self-
-# reported numbers.
-#
-# iter6b (tried, docs/EXPERIMENTS_LOG.md section 16): branch_kind: clip on
-# runs/iter6/best.pt -- same frozen CLIP-B architecture as iter7. RESULT:
-# organiser 0.9362 -> 0.9362 (exactly flat), every held-out set and every
-# per-generator number within 0.001 of iter6a. The CLIP branch measurably
-# helped iter7's undertrained base (+0.02) but has nothing left to add once
-# crop_from_native+SAFE+CF-Small diversity already closed that gap at the
-# training-data level -- the same pattern iter5b found for the wavelet
-# branch. runs/iter6b/best.pt kept on disk, not adopted.
-#
-# FINAL: runs/iter6/best.pt (below, iter6a) is this project's best and
-# production checkpoint -- equal accuracy to iter6b at a quarter of the
-# parameters (21.7M vs 107.7M), no separate fusion-head pass needed.
+# The two settings that matter most are crop_from_native and safe_augment
+# (both true, below). Training on native-resolution crops rather than
+# downsampled images is what preserves the high-frequency artifact, and it
+# is worth more than any architectural addition we tested -- see
+# docs/EXPERIMENTS_LOG.md for the full ablation record, including the
+# wavelet and frozen-CLIP branches that were measured and dropped.
 
 data_source: local
-data_dir: ../iter6_data/train
-output_dir: runs/iter6
+data_dir: ../detector_data/train
+output_dir: runs/detector
 
 model_type: vit
 

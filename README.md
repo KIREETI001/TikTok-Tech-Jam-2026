@@ -16,7 +16,7 @@ compression, blur, resizing and noise every image picks up in circulation.
 | **Demo video** | *(link in the Devpost submission)* |
 | **Robustness table** | [below](#robustness-the-15-condition-matrix) · full: [`docs/ERROR_ANALYSIS.md`](docs/ERROR_ANALYSIS.md) |
 | **Error-analysis note** | [`docs/ERROR_ANALYSIS.md`](docs/ERROR_ANALYSIS.md) + FP/FN montages [below](#error-analysis) |
-| **Reproducibility** | every number here comes from the committed `config.yaml` + `scripts/build_iter6_corpus.py` — nothing lives outside this repo |
+| **Reproducibility** | every number here comes from the committed `config.yaml` + `scripts/build_corpus.py` — nothing lives outside this repo |
 
 `pred = 1` → AI-generated · `pred = 0` → authentic.
 
@@ -99,7 +99,7 @@ is threshold-free; FPR/FNR are shown for completeness.
 heavy re-compression and additive noise are the two transforms that most
 directly overwrite the high-frequency evidence detectors lean on. Note the
 floor: even there, AUC stays well above chance. Regenerate this table for any
-checkpoint with `bash finalize_local.sh <ckpt> <tag>`.
+checkpoint with `bash evaluate.sh <ckpt> <tag>`.
 
 ### Error analysis
 
@@ -219,7 +219,7 @@ are named honestly in [Limitations](#limitations).
 | Public pretrained backbones only | `OwensLab/commfor-model-224` — public, Apache-2.0 |
 | Custom code MIT/Apache | Apache-2.0 (this repo) |
 | Public/licensed data only, no test-label training | SID_Set · DRAGON · Community-Forensics-Small · GenImage. `detector/data.py:assert_not_eval_only` **hard-fails** if an `eval_only_*` path reaches the training or calibration code |
-| Augmentation scripts included | [`detector/transforms.py`](detector/transforms.py), [`scripts/build_iter6_corpus.py`](scripts/build_iter6_corpus.py) |
+| Augmentation scripts included | [`detector/transforms.py`](detector/transforms.py), [`scripts/build_corpus.py`](scripts/build_corpus.py) |
 | No "directly replicate an existing model" | a public backbone plus an original preprocessing + corpus design, with three documented negative results establishing why the simple architecture is the right one |
 | Winning teams open-source everything | pipeline, hyperparameters (`config.yaml`), corpus builder, eval code, and weights are **all in this repo or its release** — `config.yaml` as committed reproduces the shipped checkpoint, with nothing held back locally |
 | Submission: repo + run script + Devpost + demo video | this repo, `inference.py`, Devpost, YouTube |
@@ -258,7 +258,7 @@ pip install -r requirements-cuda.txt          # NVIDIA / CPU
 python pipeline.py predict \
   --input demo_images \
   --output predictions.json \
-  --checkpoint runs/iter6/best.pt \
+  --checkpoint checkpoints/detector.pt \
   --device auto
 ```
 
@@ -274,7 +274,7 @@ scored metric is threshold-free ROC-AUC, so the probability is included in
 the JSON itself rather than only in the sidecar. `predictions.scores.csv`
 carries `probability_ai` and `confidence` for spreadsheet use.
 
-> `runs/iter6/best.pt` is ~87 MB and **not in git** (large binary). Both
+> `checkpoints/detector.pt` is ~87 MB and **not in git** (large binary). Both
 > `inference.py` fetches it automatically from the
 > [`v1.0-iter6a` release](https://github.com/KIREETI001/TikTok-Tech-Jam-2026/releases/tag/v1.0-iter6a);
 > the direct link is in that release if you would rather download it by hand.
@@ -283,7 +283,7 @@ carries `probability_ai` and `confidence` for spreadsheet use.
 
 ```bash
 pip install fastapi uvicorn python-multipart
-DETECTOR_CHECKPOINT=runs/iter6/best.pt uvicorn webapp.server:app --port 8000
+DETECTOR_CHECKPOINT=checkpoints/detector.pt uvicorn webapp.server:app --port 8000
 # open http://localhost:8000
 ```
 
@@ -313,14 +313,13 @@ Three steps, all from this repo — nothing is archived elsewhere.
 
 ```bash
 # 1. build the corpus (streams from HuggingFace; ~66.5k images on disk)
-python scripts/build_iter5_corpus.py      # SID_Set + DRAGON-17 + GenImage ADM/GLIDE
-python scripts/build_iter6_corpus.py      # + Community-Forensics-Small
+python scripts/build_corpus.py     # SID_Set + DRAGON-17 + CF-Small + GenImage
 
 # 2. train (10 epochs, ~3.5 h on an RTX 3050)
 python pipeline.py train --config config.yaml
 
 # 3. score every held-out set + regenerate the tables and montages
-bash finalize_local.sh runs/iter6/best.pt iter6
+bash evaluate.sh checkpoints/detector.pt detector
 ```
 
 `config.yaml` as committed is the exact configuration that produced the
@@ -333,7 +332,7 @@ localised editing, out of scope), `lesc-unifi/dragon` (17 generators in
 training, 8 held out), `OwensLab/CommunityForensics-Small` (latent-diffusion +
 GAN + pixel-diffusion, with LAION/ImageNet/CelebA/COCO reals), and
 `bitmind/GenImage_ADM` + `bitmind/GenImage_glide`.
-[`scripts/build_matched_eval_local.py`](scripts/build_matched_eval_local.py)
+[`scripts/build_eval_set.py`](scripts/build_eval_set.py)
 builds the resolution-matched evaluation set.
 
 ---
@@ -348,7 +347,7 @@ detector/             model · data · transforms · training · evaluation · c
 scripts/              corpus builders, matched-set builder, shortcut probe, stream-eval
 webapp/               FastAPI demo — single · 15-condition robustness · batch
 serve_demo.ps1        one command → a public Cloudflare-tunnel URL
-finalize_local.sh     full 15-condition eval + FP/FN montages for a checkpoint
+evaluate.sh     full 15-condition eval + FP/FN montages for a checkpoint
 docs/                 error-analysis note, FP/FN montages, full experiment log
 demo_images/          six labelled samples (4 AI, 2 authentic) to try it on
 requirements*.txt     cuda / cpu

@@ -1,6 +1,6 @@
 """Score a checkpoint on the resolution-matched WildFake+COCO set
-(runs/wildfake_matched, see build_matched_eval_local.py). Usage:
-    python scripts/eval_matched.py <checkpoint> [--label NAME]
+(runs/wildfake_matched, see build_eval_set.py). Usage:
+    python scripts/score_checkpoint.py <checkpoint> [--label NAME]
 """
 import argparse, sys
 from pathlib import Path

@@ -27,7 +27,7 @@ if (-not (Test-Path $CF)) {
   Invoke-WebRequest -Uri $url -OutFile $CF
 }
 
-# The webapp already defaults to runs/iter6/best.pt and auto-selects the
+# The webapp already defaults to checkpoints/detector.pt and auto-selects the
 # device, so nothing needs to be pinned here.
 
 Write-Host "Starting the detector API (loads the model, ~30s)..." -ForegroundColor Cyan

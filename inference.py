@@ -29,7 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-CKPT = ROOT / "runs" / "iter6" / "best.pt"
+CKPT = ROOT / "checkpoints" / "detector.pt"
 GH_RELEASE_URL = (
     "https://github.com/KIREETI001/TikTok-Tech-Jam-2026/releases/download/"
     "v1.0-iter6a/best.pt"

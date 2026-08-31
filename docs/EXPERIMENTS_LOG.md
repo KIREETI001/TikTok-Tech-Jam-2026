@@ -1361,3 +1361,85 @@ likely why a frequency branch has nothing marginal left to add here.
 config or webapp default should point at it. No further hybrid/wavelet
 variant is planned without a specific new hypothesis for why one would
 transfer where three attempts (two teams, two transforms) have not.
+
+## 15. Iteration 6a: stacking iter5's fixes onto iter4's real recipe -- beats iter7
+
+Cross-checking `origin/main` (the teammate's shipped iter7, organiser Final
+0.933) surfaced two things this device's iter5 line never had: (1) their
+committed `config.yaml` shows iter4/iter7's ViT half trained with
+`crop_from_native: false, safe_augment: false` -- the fix this device
+validated in iter5a was never applied to their base model; (2) their
+corpus is SID + 17 DRAGON + Community-Forensics-Small, and CF-Small was
+the single biggest lever in their own history (iter3 0.804 -> iter4 0.9126,
++0.109, per section 9j) -- bigger than crop_from_native+SAFE's own
+contribution (mixed_v2 0.7007 -> iter5a 0.8804 on a corpus *without*
+CF-Small). iter5 skipped CF-Small on a wrong read of the HF auto-converted
+preview export (only ~10.5k of the real ~556k rows, one shard reading as
+100% single-architecture) under overnight time pressure -- a partial-
+preview artifact, not a real data problem.
+
+`scripts/probe_cf_small_index.py` built a full manifest of the actual
+per-architecture shard files (`data/HFCF_small_*.parquet`, 186 shards) and
+confirmed they're complete and cleanly organised: 278,096 real / 278,445
+fake rows, architecture-tagged (LatDiff 215,453 / GAN 71,968 / PixDiff
+11,968 / Other 8,976). `scripts/build_iter6_corpus.py` reused SID_Set +
+DRAGON-17 + GenImage ADM/GLIDE from `iter5_data` via recomputing their
+content-hash filenames (index-only, no re-download) and fetched 6 real +
+8 fake CF-Small shards spread across LatDiff/GAN/PixDiff/Other/Real for
+architecture diversity. Verified corpus: real=26,361 fake=40,141 (66,502
+total) -- in line with iter4's own ~61k.
+
+Trained fresh (no warm start, same reasoning as iter5a) with
+`crop_from_native: true, safe_augment: true` on this corpus, 10 epochs,
+`samples_per_epoch: 24000` matching iter4's own recipe scale. Seen-val AUC
+0.9807 (vs iter5a's 0.9866 on its smaller, less diverse corpus -- expected,
+since the harder, more diverse mix trades a little seen-validation AUC
+for real transfer, borne out below).
+
+Held-out, identical `finalize_local.sh` pipeline:
+
+| Held-out set | iter5a | iter6a | iter7 (self-reported) |
+|---|---|---|---|
+| SID_Set | 0.8603 | 0.8481 | 0.997 |
+| DRAGON, 8 unseen generators | 0.9798 | 0.9779 | 0.996 |
+| **Organiser, resolution-matched** | 0.8804 | **0.9362** | 0.933 |
+
+**Organiser Final Score already exceeds iter7's, with a plain ViT and no
+CLIP branch.** Controlled per-generator comparison, identical matched set:
+
+| Generator | iter5a clean/robust | iter6a clean/robust | iter7 clean/robust |
+|---|---|---|---|
+| ddpm | 0.840 / 0.767 | 0.913 / 0.855 | 0.93 / 0.86 |
+| adm | 0.855 / 0.778 | **0.937 / 0.870** | 0.89 / 0.85 |
+| ddim | 0.942 / 0.867 | **0.970 / 0.918** | 0.95 / 0.89 |
+| dalle | 0.948 / 0.903 | 0.984 / 0.962 | 0.99 / 0.96 |
+| vqdm | 0.983 / 0.921 | 0.995 / 0.958 | 1.00 / 0.97 |
+
+iter6a beats iter7 outright on ADM (iter7's own weakest generator) and
+DDIM, using training-data + augmentation fixes alone -- no frozen semantic
+branch, no separately-trained fusion head. This is the cleanest evidence
+yet that crop_from_native+SAFE and CF-Small's generator diversity are
+independent, additive levers, not overlapping ones: iter4's own CF-Small
+run never had the training-side fix, and iter5a's fix never had CF-Small's
+diversity; combining them lands above either alone, and above iter7's
+CLIP-augmented version of the CF-Small-only baseline.
+
+**The gap that remains**: SID_Set and DRAGON both trail iter7's self-
+reported numbers by a wide margin (0.85/0.98 vs 0.997/0.996) even though
+organiser -- the brief's actual scored composition -- is now ahead. iter7's
+dragon/sidset numbers are not independently reproduced on this device (no
+access to their exact eval-set construction), so part of this gap may be
+methodology rather than model; it is flagged here rather than assumed
+away. Organiser is the metric the brief scores, and it is decisively
+better, so this does not block treating iter6a as a genuine improvement --
+but it means Phase 3 (below) is not merely chasing a marginal top-up, it
+is also the chance to see whether the frozen CLIP branch's semantic
+generalisation (the mechanism iter7 already demonstrated helps ADM
+specifically) closes some of this remaining gap too, on top of a strictly
+better ViT base than iter7's own.
+
+Next: iteration 6b, `branch_kind: clip`, `vit_checkpoint: runs/iter6/best.pt`
+-- the same frozen-CLIP-B architecture as iter7, layered onto this
+iteration's stronger base rather than iter4's, testing whether the two
+mechanisms (training-time fix + inference-time semantic branch) are
+additive as hypothesised.

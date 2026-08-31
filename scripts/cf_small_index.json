@@ -1,0 +1,1501 @@
+{
+  "HFCF_small_0.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_1.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_10.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_100.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_101.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_102.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_103.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_104.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_105.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_106.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_107.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_108.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_109.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_11.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_110.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_111.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_112.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_113.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_114.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_115.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_116.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_117.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_118.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_119.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_12.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_120.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_121.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_122.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_123.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_124.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_125.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_126.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_127.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_128.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_129.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_13.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_130.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_131.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_132.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_133.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_134.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_135.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_136.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_137.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_138.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_139.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_14.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_140.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_141.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_142.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_143.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_144.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_145.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_146.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_147.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_148.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_149.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_15.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_150.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_151.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_152.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_153.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_154.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_155.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_156.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_157.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_158.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_159.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_16.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_160.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_161.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_162.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_163.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_164.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_165.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_166.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_167.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_168.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_169.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_17.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_170.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_171.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_172.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_173.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_174.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_175.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_176.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_177.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_178.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_179.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_18.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_180.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_181.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_182.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_183.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_184.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_185.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_19.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_2.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_20.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_21.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_22.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_23.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_24.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_25.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_26.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_27.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_28.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_29.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_3.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_30.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_31.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_32.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_33.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_34.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_35.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_36.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_37.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_38.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_39.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_4.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_40.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_41.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_42.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_43.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_44.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_45.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_46.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_47.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_48.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_49.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_5.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_50.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_51.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_52.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_53.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_54.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_55.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_56.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_57.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_58.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_59.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_6.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_60.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_61.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_62.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_63.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_64.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_65.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_66.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN",
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_67.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN",
+      "PixDiff"
+    ]
+  },
+  "HFCF_small_68.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN",
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_69.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN"
+    ]
+  },
+  "HFCF_small_7.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_70.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN",
+      "Other"
+    ]
+  },
+  "HFCF_small_71.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "Other"
+    ]
+  },
+  "HFCF_small_72.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN",
+      "Other"
+    ]
+  },
+  "HFCF_small_73.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN"
+    ]
+  },
+  "HFCF_small_74.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN"
+    ]
+  },
+  "HFCF_small_75.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN"
+    ]
+  },
+  "HFCF_small_76.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN",
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_77.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN",
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_78.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_79.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN",
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_8.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_80.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN"
+    ]
+  },
+  "HFCF_small_81.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN",
+      "PixDiff"
+    ]
+  },
+  "HFCF_small_82.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "PixDiff"
+    ]
+  },
+  "HFCF_small_83.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN",
+      "PixDiff"
+    ]
+  },
+  "HFCF_small_84.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN"
+    ]
+  },
+  "HFCF_small_85.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN"
+    ]
+  },
+  "HFCF_small_86.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN"
+    ]
+  },
+  "HFCF_small_87.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN"
+    ]
+  },
+  "HFCF_small_88.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN"
+    ]
+  },
+  "HFCF_small_89.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN"
+    ]
+  },
+  "HFCF_small_9.parquet": {
+    "rows": 2993,
+    "real": 0,
+    "fake": 2993,
+    "architectures": [
+      "LatDiff"
+    ]
+  },
+  "HFCF_small_90.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN"
+    ]
+  },
+  "HFCF_small_91.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN"
+    ]
+  },
+  "HFCF_small_92.parquet": {
+    "rows": 2992,
+    "real": 0,
+    "fake": 2992,
+    "architectures": [
+      "GAN"
+    ]
+  },
+  "HFCF_small_93.parquet": {
+    "rows": 2992,
+    "real": 2832,
+    "fake": 160,
+    "architectures": [
+      "GAN",
+      "Real"
+    ]
+  },
+  "HFCF_small_94.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_95.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_96.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_97.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_98.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  },
+  "HFCF_small_99.parquet": {
+    "rows": 2992,
+    "real": 2992,
+    "fake": 0,
+    "architectures": [
+      "Real"
+    ]
+  }
+}

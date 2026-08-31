@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const KEYS = { apiBase: "", ambient: false, ambientThreshold: 0.9, minSize: 200 };
+const KEYS = { apiBase: "", aiBand: 0.9 };
 
 function health() {
   const el = $("status");
@@ -18,13 +18,9 @@ function save(patch) { chrome.storage.sync.set(patch); }
 chrome.storage.sync.get(KEYS, (s) => {
   const v = { ...KEYS, ...s };
   $("api").value = v.apiBase;
-  $("ambient").checked = v.ambient;
-  $("thr").value = v.ambientThreshold;
-  $("min").value = v.minSize;
+  $("band").value = v.aiBand;
   health();
 });
 
 $("api").addEventListener("change", (e) => { save({ apiBase: e.target.value.trim() }); health(); });
-$("ambient").addEventListener("change", (e) => save({ ambient: e.target.checked }));
-$("thr").addEventListener("change", (e) => save({ ambientThreshold: Math.min(0.99, Math.max(0.5, +e.target.value || 0.9)) }));
-$("min").addEventListener("change", (e) => save({ minSize: Math.max(64, +e.target.value || 200) }));
+$("band").addEventListener("change", (e) => save({ aiBand: Math.min(0.99, Math.max(0.5, +e.target.value || 0.9)) }));

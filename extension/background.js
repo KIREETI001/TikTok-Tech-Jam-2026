@@ -13,12 +13,11 @@
 
 const DEFAULTS = {
   apiBase: "",
-  ambient: false,
-  // Deliberately far above the model's calibrated 0.51. Ambient mode makes
-  // unprompted accusations about images nobody asked us to judge, so it
-  // should trade recall for precision -- see README, "Why two thresholds".
-  ambientThreshold: 0.9,
-  minSize: 200,
+  // Where the AI band starts, deliberately far above the model's calibrated
+  // 0.51. Calling an image generated is an accusation, and the panel should
+  // only make one when the model is well past merely leaning that way --
+  // see README, "Why the AI band sits so far above the threshold".
+  aiBand: 0.9,
 };
 
 const cache = new Map();          // image url -> {p_ai, verdict, threshold}
@@ -59,20 +58,14 @@ async function score(url) {
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
-  if (msg.type === "score") {
-    score(msg.url)
-      .then((v) => reply({ ok: true, ...v }))
-      .catch((e) => reply({ ok: false, error: String(e.message || e) }));
-    return true;                                    // keep the channel open
-  }
   if (msg.type === "settings") {
     settings().then((s) => reply(s));
-    return true;
+    return true;                                    // keep the channel open
   }
   return false;
 });
 
-/* ---- right-click a single image: the mode that is actually trustworthy ---- */
+/* ---- right-click a single image: the only way anything gets scored ---- */
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: "cocScan",

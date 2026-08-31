@@ -1,203 +1,204 @@
-/* Chain of Custody — page-side scanning and badges.
+/* Chain of Custody — one reading at a time.
  *
- * Two modes, deliberately different in temperament:
+ * The interaction is deliberately narrow: you right-click an image, and one
+ * panel in the corner reports on that image. Nothing else on the page is
+ * scored, marked, or annotated.
  *
- *   on demand  right-click an image -> "Check this image for AI". One question
- *              asked, one answer given. This is the default and the mode the
- *              extension is really for.
- *   ambient    every large image in the viewport is scored as you scroll. Off
- *              by default, and -- unlike the first version -- silent unless a
- *              score lands in the top band. A badge on every image is not a
- *              radar, it is wallpaper: it spends the reader's attention on
- *              every photo to tell them what they already assumed about almost
- *              all of them.
+ * This replaces per-image badges, which were the wrong shape twice over. They
+ * scaled with the page rather than with your attention, so a feed of thirty
+ * photos became thirty verdicts nobody asked for; and once several were on
+ * screen there was no way to tell which one you had actually asked about. A
+ * single panel cannot have either problem -- there is only ever one reading,
+ * and it names its own subject with a thumbnail.
  *
- * Three bands, taken from the score rather than from the mode:
+ * The reading holds for HOLD_MS and then falls back to an em dash. An answer
+ * that stays forever becomes furniture: you stop reading it, and worse, you
+ * lose track of which image it belonged to. Expiring it means a number on
+ * screen is always about the thing you just asked about. The countdown pauses
+ * while the pointer is over the panel, because a reading should not vanish
+ * out from under someone who is still reading it.
  *
- *   authentic   p_ai <  threshold             the model's own calibrated point
+ * Three bands, from the score rather than the mode:
+ *
+ *   authentic   p_ai <  threshold      the model's own calibrated point
  *   uncertain   threshold <= p_ai < high
- *   AI          p_ai >= high                  (CFG.ambientThreshold, def 0.90)
- *
- * The middle band exists because folding it into "authentic" was actively
- * misleading: a 0.80 image was painted the same colour as a 0.07 image, which
- * reads as "we checked, this is fine" when what the model actually said was
- * "probably generated, but not past the bar I will accuse someone over".
+ *   AI          p_ai >= high           (CFG.aiBand, default 0.90)
  */
 
-const STATE = new WeakMap();     // img -> {status, p_ai, badge}
-let CFG = { ambient: false, ambientThreshold: 0.9, minSize: 200 };
+const HOLD_MS = 3000;
+
+let CFG = { aiBand: 0.9 };
 let layer = null;
-let queued = [];
-let flushing = false;
+let panel = null;
+let ring = null;
+const ui = {};
+let holdTimer = 0;
+let hovering = false;
+let ringTarget = null;
+let raf = 0;
+let lastThreshold = null;
 
 const pct = (x, d) => (x * 100).toFixed(d) + "%";
+
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text != null) n.textContent = text;
+  return n;
+}
 
 function ensureLayer() {
   // isConnected, not document.body.contains -- the layer is appended to
   // documentElement, so a body-based check is always false and every call
   // would build another layer.
   if (layer && layer.isConnected) return layer;
-  layer = document.createElement("div");
-  layer.className = "coc-layer";
+  layer = el("div", "coc-layer");
   document.documentElement.appendChild(layer);
   return layer;
 }
 
-function bigEnough(img) {
-  const w = img.naturalWidth || img.width;
-  const h = img.naturalHeight || img.height;
-  return w >= CFG.minSize && h >= CFG.minSize;
+/* ---------------------------------------------------------------- the panel */
+
+function buildPanel() {
+  ensureLayer();
+
+  // Built with createElement rather than innerHTML: content scripts run in an
+  // isolated world, but sites that enforce Trusted Types are exactly the sites
+  // this most needs to work on, and there is no reason to depend on that
+  // exemption holding.
+  ring = el("div", "coc-ring");
+  layer.appendChild(ring);
+
+  panel = el("div", "coc-panel");
+  panel.dataset.state = "idle";
+
+  const head = el("div", "coc-head");
+  head.appendChild(el("span", "coc-mark", "Chain of Custody"));
+  const close = el("button", "coc-close", "×");
+  close.type = "button";
+  close.title = "Hide this panel";
+  close.setAttribute("aria-label", "Hide the Chain of Custody panel");
+  close.addEventListener("click", dismiss);
+  head.appendChild(close);
+
+  const body = el("div", "coc-body");
+  ui.thumb = el("img", "coc-thumb");
+  ui.thumb.alt = "";
+  const read = el("div", "coc-read");
+  ui.score = el("div", "coc-score", "—");
+  ui.word = el("div", "coc-word", "right-click an image to check it");
+  read.appendChild(ui.score);
+  read.appendChild(ui.word);
+  body.appendChild(ui.thumb);
+  body.appendChild(read);
+
+  ui.legend = el("div", "coc-legend");
+
+  panel.appendChild(head);
+  panel.appendChild(body);
+  panel.appendChild(ui.legend);
+
+  panel.addEventListener("mouseenter", () => { hovering = true; });
+  panel.addEventListener("mouseleave", () => { hovering = false; });
+
+  layer.appendChild(panel);
+  renderLegend();
 }
 
-function badgeFor(img) {
-  const st = STATE.get(img);
-  if (st && st.badge) return st.badge;
-  const b = document.createElement("div");
-  b.className = "coc-badge coc-pending";
-  b.textContent = "…";
-  // Dismissable, because an answer you asked for should also be one you can
-  // put away -- otherwise the deliberate mode slowly accumulates the same
-  // clutter the ambient mode was just cured of.
-  b.addEventListener("click", () => {
-    b.remove();
-    const s = STATE.get(img);
-    if (s) { delete s.badge; s.status = "dismissed"; STATE.set(img, s); }
-  });
-  ensureLayer().appendChild(b);
-  return b;
+function ensurePanel() {
+  if (!panel || !panel.isConnected) buildPanel();
+  return panel;
 }
 
-function place(img, badge) {
-  const r = img.getBoundingClientRect();
-  if (r.width < 8 || r.bottom < 0 || r.top > innerHeight) {
-    badge.style.display = "none";
-    return;
+/* The legend gains its numbers once a scan has told us the model's threshold.
+ * Until then it names the bands without inventing boundaries for them. */
+function renderLegend() {
+  const bands = [
+    ["real", "authentic", lastThreshold == null ? "" : "< " + pct(lastThreshold, 0)],
+    ["maybe", "uncertain", lastThreshold == null ? "" :
+      pct(lastThreshold, 0) + "–" + pct(highBar(), 0)],
+    ["ai", "AI", lastThreshold == null ? "" : "≥ " + pct(highBar(), 0)],
+  ];
+  ui.legend.textContent = "";
+  for (const [key, name, range] of bands) {
+    const row = el("span", "coc-lg");
+    row.appendChild(el("i", "coc-k coc-k-" + key));
+    row.appendChild(el("b", null, name));
+    // Always appended, even when empty: the row is a grid row, and a missing
+    // cell would shift every band below it out of alignment.
+    row.appendChild(el("small", null, range));
+    ui.legend.appendChild(row);
   }
-  badge.style.display = "";
-  badge.style.transform = "translate(" + Math.round(r.left + 8) + "px," +
-                                          Math.round(r.top + 8) + "px)";
+}
+
+function highBar() {
+  return Math.max(lastThreshold == null ? 0 : lastThreshold, CFG.aiBand);
 }
 
 function bandOf(p, threshold, high) {
-  if (p >= high) return { cls: "coc-ai", word: "likely AI-generated" };
-  if (p >= threshold) return { cls: "coc-maybe", word: "uncertain" };
-  return { cls: "coc-real", word: "likely authentic" };
+  if (p >= high) return { key: "ai", word: "likely AI-generated" };
+  if (p >= threshold) return { key: "maybe", word: "uncertain" };
+  return { key: "real", word: "likely authentic" };
 }
 
-function paint(img, res) {
-  const st = STATE.get(img) || {};
-  const forced = !!res.forced;
+/* ------------------------------------------------------------------ the ring */
 
-  if (!res.ok) {
-    // Report a failure only for a scan someone actually asked for. An ambient
-    // pass that cannot reach the detector should fail quietly rather than
-    // stipple the page with dashes.
-    if (!forced) { st.status = "done"; STATE.set(img, st); return; }
-    const badge = badgeFor(img);
-    st.badge = badge; st.status = "error";
-    badge.className = "coc-badge coc-error";
-    badge.textContent = "—";
-    badge.title = "Chain of Custody: " + res.error + "\n\nclick to dismiss";
-    STATE.set(img, st);
-    place(img, badge);
+function ringBand(key) {
+  if (ring) ring.className = "coc-ring" + (key ? " coc-ring-" + key : "");
+}
+
+function placeRing() {
+  if (!ring) return;
+  if (!ringTarget || !ringTarget.isConnected) { ring.style.display = "none"; return; }
+  const r = ringTarget.getBoundingClientRect();
+  if (r.width < 4 || r.bottom < 0 || r.top > innerHeight) {
+    ring.style.display = "none";
     return;
   }
-
-  const high = Math.max(res.threshold, CFG.ambientThreshold);
-  const band = bandOf(res.p_ai, res.threshold, high);
-
-  st.status = "done";
-  st.p_ai = res.p_ai;
-
-  // The point of the rework: ambient mode says nothing at all unless the score
-  // reaches the band it would actually call AI.
-  if (!forced && band.cls !== "coc-ai") { STATE.set(img, st); return; }
-
-  const badge = badgeFor(img);
-  st.badge = badge;
-  badge.className = "coc-badge " + band.cls;
-  badge.textContent = pct(res.p_ai, 0);
-  // Every badge carries its own legend. There is nowhere else to put one: the
-  // badge floats over somebody else's page, so if the bands are not explained
-  // here they are not explained anywhere the reader is looking.
-  badge.title =
-    "Chain of Custody — P(AI) " + pct(res.p_ai, 1) + "\n" +
-    band.word + "\n\n" +
-    "authentic   below " + pct(res.threshold, 0) + "\n" +
-    "uncertain   " + pct(res.threshold, 0) + " – " + pct(high, 0) + "\n" +
-    "AI          " + pct(high, 0) + " and above\n\n" +
-    "click to dismiss" + (res.cached ? "  ·  cached" : "");
-  STATE.set(img, st);
-  place(img, badge);
+  // "block", not "" -- .coc-ring is display:none in the stylesheet, so clearing
+  // the inline value falls back to hidden rather than showing it.
+  ring.style.display = "block";
+  ring.style.transform = "translate(" + Math.round(r.left) + "px," + Math.round(r.top) + "px)";
+  ring.style.width = Math.round(r.width) + "px";
+  ring.style.height = Math.round(r.height) + "px";
 }
 
-function request(img) {
-  const st = STATE.get(img) || {};
-  if (st.status === "pending" || st.status === "done" || st.status === "dismissed") return;
-  const url = img.currentSrc || img.src;
-  if (!url || url.startsWith("data:")) return;
-  st.status = "pending";
-  STATE.set(img, st);
-  // No pending badge on this path. Ambient scoring is speculative, and a "..."
-  // on every image while it resolves is exactly the noise this mode avoids.
-  chrome.runtime.sendMessage({ type: "score", url }, (res) => {
-    if (chrome.runtime.lastError) {
-      paint(img, { ok: false, error: chrome.runtime.lastError.message });
-      return;
-    }
-    paint(img, res || { ok: false, error: "no response" });
-  });
-}
-
-/* Score only what is actually on screen, and only once it has settled. */
-const io = new IntersectionObserver((entries) => {
-  if (!CFG.ambient) return;
-  for (const e of entries) {
-    if (!e.isIntersecting) continue;
-    const img = e.target;
-    if (!bigEnough(img)) { io.unobserve(img); continue; }
-    queued.push(img);
-  }
-  flush();
-}, { rootMargin: "100px", threshold: 0.25 });
-
-function flush() {
-  if (flushing || !queued.length) return;
-  flushing = true;
-  const batch = queued.splice(0, 4);          // keep the tab responsive
-  batch.forEach(request);
-  setTimeout(() => { flushing = false; flush(); }, 250);
-}
-
-function sweep(root) {
-  const imgs = (root instanceof Element ? root : document).querySelectorAll("img");
-  imgs.forEach((img) => {
-    if (STATE.has(img)) return;
-    STATE.set(img, { status: "seen" });
-    if (img.complete) { if (bigEnough(img)) io.observe(img); }
-    else img.addEventListener("load", () => { if (bigEnough(img)) io.observe(img); }, { once: true });
-  });
-}
-
-/* Instagram replaces feed nodes constantly; without this the radar goes quiet
- * after the first screen. */
-const mo = new MutationObserver((muts) => {
-  for (const m of muts) {
-    m.addedNodes.forEach((n) => { if (n.nodeType === 1) sweep(n); });
-  }
-});
-
-let raf = 0;
 function reposition() {
   if (raf) return;
-  raf = requestAnimationFrame(() => {
-    raf = 0;
-    if (!layer) return;
-    document.querySelectorAll("img").forEach((img) => {
-      const st = STATE.get(img);
-      if (st && st.badge) place(img, st.badge);
-    });
-  });
+  raf = requestAnimationFrame(() => { raf = 0; placeRing(); });
+}
+
+/* ------------------------------------------------------------------- states */
+
+function clearHold() { clearTimeout(holdTimer); holdTimer = 0; }
+
+function scheduleIdle() {
+  clearHold();
+  holdTimer = setTimeout(() => {
+    // Do not pull a reading away from someone who is still looking at it.
+    if (hovering) { scheduleIdle(); return; }
+    toIdle();
+  }, HOLD_MS);
+}
+
+function toIdle() {
+  clearHold();
+  if (!panel) return;
+  panel.dataset.state = "idle";
+  delete panel.dataset.band;
+  ui.score.textContent = "—";
+  ui.word.textContent = "right-click an image to check it";
+  ui.thumb.removeAttribute("src");
+  ringTarget = null;
+  ringBand(null);
+  placeRing();
+}
+
+function dismiss() {
+  clearHold();
+  ringTarget = null;
+  if (panel) { panel.remove(); panel = null; }
+  if (ring) { ring.remove(); ring = null; }
 }
 
 function findByUrl(url) {
@@ -205,44 +206,66 @@ function findByUrl(url) {
     .find((i) => (i.currentSrc || i.src) === url);
 }
 
-/* A right-click scan always paints, whatever mode we are in. */
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === "scanning") {
-    // The deliberate path does get a pending badge: you asked, so you are owed
-    // an acknowledgement while the fetch and the forward pass run.
-    const img = findByUrl(msg.url);
-    if (!img) return;
-    const st = STATE.get(img) || {};
-    st.status = "pending";
-    st.badge = badgeFor(img);
-    st.badge.className = "coc-badge coc-pending";
-    st.badge.textContent = "…";
-    st.badge.title = "Chain of Custody — checking…";
-    STATE.set(img, st);
-    place(img, st.badge);
+function showScanning(url) {
+  ensurePanel();
+  clearHold();
+  const img = findByUrl(url);
+  panel.dataset.state = "busy";
+  delete panel.dataset.band;
+  ui.score.textContent = "…";
+  ui.word.textContent = "checking this image";
+  if (img) { ui.thumb.src = img.currentSrc || img.src; ringTarget = img; }
+  ringBand("busy");
+  placeRing();
+}
+
+function showResult(msg) {
+  ensurePanel();
+  clearHold();
+
+  if (!msg.ok) {
+    panel.dataset.state = "error";
+    delete panel.dataset.band;
+    ui.score.textContent = "—";
+    ui.word.textContent = msg.error || "could not check that image";
+    ringTarget = null;
+    ringBand(null);
+    placeRing();
+    scheduleIdle();
     return;
   }
-  if (msg.type !== "result") return;
+
+  lastThreshold = msg.threshold;
+  const band = bandOf(msg.p_ai, msg.threshold, highBar());
   const img = findByUrl(msg.url);
-  if (img) {
-    STATE.set(img, { ...(STATE.get(img) || {}), status: "seen" });
-    paint(img, msg);
-  }
+
+  if (img) { ui.thumb.src = img.currentSrc || img.src; ringTarget = img; }
+  panel.dataset.state = "result";
+  panel.dataset.band = band.key;
+  ui.score.textContent = pct(msg.p_ai, 0);
+  ui.word.textContent = band.word + (msg.cached ? " · cached" : "");
+  renderLegend();
+  ringBand(band.key);
+  placeRing();
+  scheduleIdle();
+}
+
+/* ---------------------------------------------------------------- the wiring */
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === "scanning") showScanning(msg.url);
+  else if (msg.type === "result") showResult(msg);
 });
 
 chrome.storage.onChanged.addListener((changes) => {
-  for (const k of Object.keys(changes)) {
-    if (k in CFG) CFG[k] = changes[k].newValue;
-  }
-  if (CFG.ambient) sweep(document);
+  if (changes.aiBand) { CFG.aiBand = changes.aiBand.newValue; renderLegend(); }
 });
 
 chrome.runtime.sendMessage({ type: "settings" }, (s) => {
   if (chrome.runtime.lastError || !s) return;
-  CFG = { ambient: s.ambient, ambientThreshold: s.ambientThreshold, minSize: s.minSize };
-  ensureLayer();
-  sweep(document);
-  mo.observe(document.documentElement, { childList: true, subtree: true });
+  CFG.aiBand = s.aiBand;
+  // The panel is not built until the first scan. Until you ask a question,
+  // this extension puts nothing on the page at all.
   addEventListener("scroll", reposition, { passive: true });
   addEventListener("resize", reposition, { passive: true });
 });

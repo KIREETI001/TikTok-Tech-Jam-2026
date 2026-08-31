@@ -1,34 +1,177 @@
-/* Badges float above the page in a single fixed layer, so nothing is injected
- * into the host site's own DOM tree and its layout is never disturbed. */
+/* Chain of Custody — the reading panel.
+ *
+ * Everything lives in one fixed layer appended to documentElement, so nothing
+ * is injected into the host site's own tree and its layout is never disturbed.
+ *
+ * Every property that matters is stated explicitly rather than inherited. This
+ * stylesheet lands inside someone else's page, next to their resets and their
+ * `* { }` rules, and anything left to inheritance will eventually be inherited
+ * from something hostile.
+ */
+
 .coc-layer{
   position: fixed;
   inset: 0;
   pointer-events: none;
   z-index: 2147483647;
 }
-.coc-badge{
+
+/* The ring marks which image the reading is about. A panel in the corner is
+ * unambiguous about the verdict and silent about the subject; this says the
+ * subject out loud, on the page, where the cursor already is. */
+.coc-ring{
   position: absolute;
   top: 0; left: 0;
-  font: 600 11px/1 "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-variant-numeric: tabular-nums;
-  padding: 5px 7px;
-  border-radius: 5px;
-  color: #EDE9E1;
-  background: rgba(11, 14, 17, .88);
-  border: 1px solid #232C34;
-  backdrop-filter: blur(4px);
-  pointer-events: auto;
-  cursor: help;
-  white-space: nowrap;
-  box-shadow: 0 1px 2px rgba(0,0,0,.35);
+  display: none;
+  box-sizing: border-box;
+  border: 2px solid #E2703A;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(11,14,17,.55), 0 0 22px rgba(226,112,58,.28);
+  pointer-events: none;
 }
-/* Three bands. The web app's two signal colours mark the two ends; the middle
- * band gets its own hue AND a dashed edge, because #D9A441 and #E2703A are
- * adjacent hues that 11px of colour alone cannot reliably separate -- the
- * dashes carry the meaning for anyone reading shape rather than hue. Dashed
- * also happens to say the right thing: this verdict is not settled. */
-.coc-badge.coc-ai{ color:#E2703A; border-color: rgba(226,112,58,.7); }
-.coc-badge.coc-maybe{ color:#D9A441; border-color: rgba(217,164,65,.65); border-style: dashed; }
-.coc-badge.coc-real{ color:#4FA8B8; border-color: rgba(79,168,184,.55); }
-.coc-badge.coc-pending{ color:#8A97A3; }
-.coc-badge.coc-error{ color:#8A97A3; border-style: dotted; }
+
+.coc-panel{
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 232px;
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+  background: rgba(15, 20, 25, .94);
+  backdrop-filter: blur(10px);
+  border: 1px solid #232C34;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.45);
+  color: #EDE9E1;
+  font: 400 13px/1.45 "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-align: left;
+  pointer-events: auto;
+  overflow: hidden;
+}
+
+/* ---------------------------------------------------------------- head row */
+
+.coc-head{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-bottom: 1px solid #1C242B;
+}
+.coc-mark{
+  font: 600 9.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: #8A97A3;
+}
+.coc-close{
+  /* 28px of hit area around a 12px glyph -- the visible mark is small because
+   * it is not the point of the panel, but it still has to be clickable. */
+  all: unset;
+  display: grid;
+  place-items: center;
+  width: 22px; height: 22px;
+  border-radius: 6px;
+  color: #8A97A3;
+  font: 400 15px/1 system-ui, sans-serif;
+  cursor: pointer;
+  transition-property: background-color, color;
+  transition-duration: 120ms;
+  transition-timing-function: ease-out;
+}
+.coc-close:hover{ background: #1C242B; color: #EDE9E1; }
+.coc-close:focus-visible{ outline: 2px solid #4FA8B8; outline-offset: 1px; }
+
+/* ---------------------------------------------------------------- the read */
+
+.coc-body{
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px;
+}
+.coc-thumb{
+  width: 46px; height: 46px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: 7px;
+  background: #10161B;
+  /* Neutral inset outline so a pale image does not bleed into the panel. */
+  outline: 1px solid rgba(255,255,255,.12);
+  outline-offset: -1px;
+  display: none;
+}
+.coc-panel[data-state="busy"] .coc-thumb,
+.coc-panel[data-state="result"] .coc-thumb{ display: block; }
+
+.coc-read{ min-width: 0; }
+.coc-score{
+  font: 600 25px/1.05 "IBM Plex Sans", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.015em;
+  color: #6E7C88;
+}
+.coc-word{
+  margin-top: 2px;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: #8A97A3;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+
+/* The three bands. Colour states the verdict; the panel is small enough that
+ * the number and the word carry it even where colour does not read. */
+.coc-panel[data-band="ai"]    .coc-score{ color: #E2703A; }
+.coc-panel[data-band="maybe"] .coc-score{ color: #D9A441; }
+.coc-panel[data-band="real"]  .coc-score{ color: #4FA8B8; }
+.coc-panel[data-band="ai"]    .coc-word,
+.coc-panel[data-band="maybe"] .coc-word,
+.coc-panel[data-band="real"]  .coc-word{ color: #EDE9E1; }
+
+/* The ring takes the band's colour too, set as a class from content.js -- it
+ * is a sibling of the panel and precedes it, so no combinator reaches it. */
+.coc-ring-ai{    border-color: #E2703A; box-shadow: 0 0 0 1px rgba(11,14,17,.55), 0 0 22px rgba(226,112,58,.28); }
+.coc-ring-maybe{ border-color: #D9A441; border-style: dashed; box-shadow: 0 0 0 1px rgba(11,14,17,.55), 0 0 22px rgba(217,164,65,.24); }
+.coc-ring-real{  border-color: #4FA8B8; box-shadow: 0 0 0 1px rgba(11,14,17,.55), 0 0 22px rgba(79,168,184,.22); }
+.coc-ring-busy{  border-color: #6E7C88; border-style: dashed; box-shadow: 0 0 0 1px rgba(11,14,17,.55); }
+
+/* ---------------------------------------------------------------- legend */
+
+/* Three columns -- swatch, name, range -- so the ranges line up under each
+ * other. Wrapping these as inline chips reads as an accident; a grid reads as
+ * a table, which is what a legend is. */
+.coc-legend{
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 5px 8px;
+  padding: 9px 12px 10px;
+  border-top: 1px solid #1C242B;
+  background: rgba(10,13,16,.5);
+  font: 400 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+/* display:contents lifts each row's three children into the parent grid, so
+ * they share its columns instead of forming their own little box. */
+.coc-lg{ display: contents; }
+.coc-lg b{ font-weight: 500; color: #8A97A3; white-space: nowrap; }
+.coc-lg small{ font-size: 10px; color: #5C6873; text-align: right; white-space: nowrap; }
+.coc-k{
+  width: 7px; height: 7px;
+  border-radius: 2px;
+  border: 1px solid;
+  flex: 0 0 auto;
+}
+/* Mirrors the score colours exactly. A legend whose swatches drift from the
+ * thing they explain is worse than no legend. */
+.coc-k-ai{    border-color: #E2703A; background: rgba(226,112,58,.35); }
+.coc-k-maybe{ border-color: #D9A441; background: rgba(217,164,65,.3); border-style: dashed; }
+.coc-k-real{  border-color: #4FA8B8; background: rgba(79,168,184,.3); }
+
+@media (prefers-reduced-motion: reduce){
+  .coc-close{ transition-duration: 0ms; }
+}

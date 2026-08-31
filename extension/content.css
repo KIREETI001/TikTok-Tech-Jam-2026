@@ -1,0 +1,29 @@
+/* Badges float above the page in a single fixed layer, so nothing is injected
+ * into the host site's own DOM tree and its layout is never disturbed. */
+.coc-layer{
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2147483647;
+}
+.coc-badge{
+  position: absolute;
+  top: 0; left: 0;
+  font: 600 11px/1 "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+  padding: 5px 7px;
+  border-radius: 5px;
+  color: #EDE9E1;
+  background: rgba(11, 14, 17, .88);
+  border: 1px solid #232C34;
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+  cursor: help;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0,0,0,.35);
+}
+/* Same two signal colours as the web app: amber flags, cyan clears. */
+.coc-badge.coc-ai{ color:#E2703A; border-color: rgba(226,112,58,.7); }
+.coc-badge.coc-real{ color:#4FA8B8; border-color: rgba(79,168,184,.55); }
+.coc-badge.coc-pending{ color:#8A97A3; }
+.coc-badge.coc-error{ color:#8A97A3; border-style: dashed; }

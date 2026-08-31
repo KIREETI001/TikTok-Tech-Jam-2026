@@ -19,7 +19,10 @@ let queued = [];
 let flushing = false;
 
 function ensureLayer() {
-  if (layer && document.body.contains(layer)) return layer;
+  // isConnected, not document.body.contains -- the layer is appended to
+  // documentElement, so a body-based check is always false and every call
+  // would build another layer.
+  if (layer && layer.isConnected) return layer;
   layer = document.createElement("div");
   layer.className = "coc-layer";
   document.documentElement.appendChild(layer);

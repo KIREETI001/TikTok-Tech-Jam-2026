@@ -29,7 +29,7 @@ byte-range-probing pass this deadline didn't leave room for.
 
 Usage:
     ./.venv/Scripts/python.exe scripts/evaluate_wildfake.py \\
-        --checkpoint runs/mixed_v2/best.pt --per-generator 200 --real-count 1200
+        --checkpoint checkpoints/detector.pt --per-generator 200 --real-count 1200
 """
 
 from __future__ import annotations

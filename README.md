@@ -12,7 +12,7 @@ compression, blur, resizing and noise every image picks up in circulation.
 | | |
 |---|---|
 | **Live demo** | run `serve_demo.ps1` → a public `https://<...>.trycloudflare.com` URL (see [Try it](#try-it-2-minutes)) |
-| **Model weights** | [**`v1.0-iter6a` release**](https://github.com/KIREETI001/TikTok-Tech-Jam-2026/releases/tag/v1.0-iter6a) — 21.7M params, 87 MB, Apache-2.0 (`inference.py` fetches it automatically) |
+| **Model weights** | [**`v1.0` release**](https://github.com/KIREETI001/TikTok-Tech-Jam-2026/releases/tag/v1.0) — 21.7M params, 87 MB, Apache-2.0 (`inference.py` fetches it automatically) |
 | **Demo video** | *(link in the Devpost submission)* |
 | **Robustness table** | [below](#robustness-the-15-condition-matrix) · full: [`docs/ERROR_ANALYSIS.md`](docs/ERROR_ANALYSIS.md) |
 | **Error-analysis note** | [`docs/ERROR_ANALYSIS.md`](docs/ERROR_ANALYSIS.md) + FP/FN montages [below](#error-analysis) |
@@ -274,9 +274,9 @@ scored metric is threshold-free ROC-AUC, so the probability is included in
 the JSON itself rather than only in the sidecar. `predictions.scores.csv`
 carries `probability_ai` and `confidence` for spreadsheet use.
 
-> `checkpoints/detector.pt` is ~87 MB and **not in git** (large binary). Both
+> `checkpoints/detector.pt` is ~87 MB and **not in git** (large binary).
 > `inference.py` fetches it automatically from the
-> [`v1.0-iter6a` release](https://github.com/KIREETI001/TikTok-Tech-Jam-2026/releases/tag/v1.0-iter6a);
+> [`v1.0` release](https://github.com/KIREETI001/TikTok-Tech-Jam-2026/releases/tag/v1.0);
 > the direct link is in that release if you would rather download it by hand.
 
 **3 — the interactive demo:**

@@ -580,7 +580,7 @@ def create_hybrid_detector(
     """Create the hybrid (ViT + frequency branch) detector.
 
     ``vit_checkpoint``, if given, loads the ViT half from a checkpoint
-    already produced by this pipeline (e.g. ``runs/mixed_v2/best.pt``)
+    already produced by this pipeline (e.g. ``checkpoints/detector.pt``)
     instead of the raw pinned Community Forensics weights -- this matters:
     the raw checkpoint has a strong "predict real" bias on this project's
     data (measured directly: predicts real for 100% of a 480-image

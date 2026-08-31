@@ -19,7 +19,7 @@ api = HfApi()
 create_repo(a.repo, repo_type="model", private=a.private, exist_ok=True)
 
 for local, remote in [
-    (ROOT / "runs/iter7/best.pt", "best.pt"),
+    (ROOT / "runs/iter6/best.pt", "best.pt"),
     (ROOT / "hf_upload/model_config.json", "model_config.json"),
     (ROOT / "hf_upload/README.md", "README.md"),
 ]:

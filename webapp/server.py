@@ -50,7 +50,7 @@ from detector.transforms import (  # noqa: E402
 )
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
-CHECKPOINT = os.environ.get("DETECTOR_CHECKPOINT", "runs/iter7/best.pt")
+CHECKPOINT = os.environ.get("DETECTOR_CHECKPOINT", "runs/iter6/best.pt")
 DEVICE = os.environ.get("DETECTOR_DEVICE", "auto")
 # Comma-separated allowlist. "*" is fine here: no cookies, no auth, and the
 # uploaded image is scored in memory and dropped rather than retained.

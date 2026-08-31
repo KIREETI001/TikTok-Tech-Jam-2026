@@ -14,8 +14,8 @@ PY="${PYTHON:-python}"
 SPACE_ID="${1:-}"
 [ -n "$SPACE_ID" ] || { echo "usage: bash space/deploy.sh <hf-username>/<space-name>" >&2; exit 1; }
 
-CKPT="$REPO_ROOT/runs/iter7/best.pt"
-[ -f "$CKPT" ] || { echo "missing $CKPT — train iter7 first" >&2; exit 1; }
+CKPT="$REPO_ROOT/runs/iter6/best.pt"
+[ -f "$CKPT" ] || { echo "missing $CKPT — fetch the weights first (run.sh -> option 2)" >&2; exit 1; }
 
 BUILD="$HERE/build"
 rm -rf "$BUILD"; mkdir -p "$BUILD"
@@ -34,7 +34,7 @@ api = HfApi()
 print("Authenticated as", api.whoami()["name"])
 api.create_repo(repo_id, repo_type="space", space_sdk="docker", exist_ok=True)
 api.upload_folder(folder_path=build, repo_id=repo_id, repo_type="space",
-                  commit_message="Deploy iter7 AI-image detector (Final Score 0.9326)")
+                  commit_message="Deploy iter6a AI-image detector (Final Score 0.9362)")
 sub = repo_id.replace("/", "-").replace("_", "-")
 print(f"\nDone.\n  Space:    https://huggingface.co/spaces/{repo_id}\n  Live URL: https://{sub}.hf.space")
 PYEOF

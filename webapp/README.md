@@ -8,11 +8,11 @@ clean-only demo can't show.
 
 ```bash
 pip install fastapi uvicorn
-DETECTOR_CHECKPOINT=runs/iter7/best.pt uvicorn webapp.server:app --port 8000
+DETECTOR_CHECKPOINT=runs/iter6/best.pt uvicorn webapp.server:app --port 8000
 # open http://localhost:8000
 ```
 
-Env: `DETECTOR_CHECKPOINT` (default `runs/iter7/best.pt`), `DETECTOR_DEVICE`
+Env: `DETECTOR_CHECKPOINT` (default `runs/iter6/best.pt`), `DETECTOR_DEVICE`
 (`auto` → XPU/CUDA/CPU), `ALLOW_ORIGINS`.
 
 ## Endpoints

@@ -2,7 +2,7 @@
 #
 #   powershell -ExecutionPolicy Bypass -File serve_demo.ps1
 #
-# Starts the FastAPI app (iter7 checkpoint) and a Cloudflare quick tunnel.
+# Starts the FastAPI app (iter6a checkpoint) and a Cloudflare quick tunnel.
 # Prints a https://<random>.trycloudflare.com URL. Ctrl+C stops both.
 # No account, no cost. The URL lives only while this script runs.
 
@@ -13,7 +13,7 @@ $PY   = "C:\Users\attil\ttj-venv26\Scripts\python.exe"
 $CF   = "C:\Users\attil\tools\cloudflared.exe"
 $PORT = 8000
 
-$env:DETECTOR_CHECKPOINT = "runs/iter7/best.pt"
+$env:DETECTOR_CHECKPOINT = "runs/iter6/best.pt"
 $env:DETECTOR_DEVICE     = "xpu"
 $env:HF_HOME             = "C:\Users\attil\ttj-cache\hf"
 $env:SYCL_CACHE_PERSISTENT = "1"

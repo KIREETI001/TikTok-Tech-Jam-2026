@@ -4,17 +4,19 @@
 AI-generated images from authentic photographs, and *keeps working* after the
 compression, blur, resizing and noise every image picks up in circulation.
 
-> **Result: Final Score `0.933`** on the organisers' benchmark composition
-> (WildFake vs COCO, resolution-matched), measured on **six generator
-> families with zero representation in training**.
+> **Result: Final Score `0.9362`** on the organisers' benchmark composition
+> (WildFake vs COCO, resolution-matched), measured on **five generator
+> families with zero representation in training** — from a **21.7M-parameter
+> ViT**, no ensemble, no second branch.
 
 | | |
 |---|---|
 | **Live demo** | run `serve_demo.ps1` → a public `https://<...>.trycloudflare.com` URL (see [Try it](#try-it-2-minutes)) |
-| **Model weights** | `runs/iter7/best.pt` — 108M params, Apache-2.0 → HuggingFace via `hf_upload/upload.py` |
+| **Model weights** | [**`v1.0-iter6a` release**](https://github.com/KIREETI001/TikTok-Tech-Jam-2026/releases/tag/v1.0-iter6a) — 21.7M params, 87 MB, Apache-2.0 (`run.bat` / `run.sh` fetches it for you) |
 | **Demo video** | *(link in the Devpost submission)* |
 | **Robustness table** | [below](#robustness-the-15-condition-matrix) · full: [`docs/ERROR_ANALYSIS.md`](docs/ERROR_ANALYSIS.md) |
 | **Error-analysis note** | [`docs/ERROR_ANALYSIS.md`](docs/ERROR_ANALYSIS.md) + FP/FN montages [below](#error-analysis) |
+| **Reproducibility** | every number here comes from the committed `config.yaml` + `scripts/build_iter6_corpus.py` — nothing lives outside this repo |
 
 `pred = 1` → AI-generated · `pred = 0` → authentic.
 
@@ -56,40 +58,48 @@ All held-out. The organiser composition is the reporting number.
 
 | Benchmark | Final Score | AUC(clean) | AUC(robust) |
 |---|---|---|---|
-| **Organiser composition** — WildFake pixel-diffusion (ADM, DALL·E, DDIM, DDPM, Imagen, VQDM) vs COCO, resolution-matched | **0.933** | 0.955 | 0.911 |
-| DRAGON — 8 unseen latent-diffusion generators (Flux, SDXL-Turbo, SD3, Kolors, …) | 0.996 | 0.997 | 0.995 |
-| SID_Set full-synthetic — in-domain | 0.997 | 0.999 | 0.996 |
+| **Organiser composition** — WildFake pixel-diffusion (ADM, DALL·E, DDIM, DDPM, VQDM) vs COCO, resolution-matched | **0.9362** | 0.9597 | 0.9127 |
+| DRAGON — 8 unseen latent-diffusion generators (Flux, SDXL-Turbo, SD3, Kolors, …) | 0.9779 | 0.9883 | 0.9675 |
+| SID_Set — mixed full-synthetic **and locally-tampered** images | 0.8481 | 0.8576 | 0.8386 |
 
-**Per-generator ROC-AUC on the organiser set** (all six are pixel-space
-diffusion, none in training):
+The SID_Set row is the hardest of the three because it includes *tampered*
+images — real photographs with a locally edited region — which this detector
+is not built for: it answers "was this image generated?", not "was part of it
+edited?". It is reported anyway rather than dropped.
 
-| | ADM | DDPM | DDIM | Imagen | DALL·E | VQDM |
-|---|---|---|---|---|---|---|
-| clean | 0.89 | 0.93 | 0.95 | 0.97 | 0.99 | 1.00 |
-| mean-robust | 0.85 | 0.86 | 0.89 | 0.93 | 0.96 | 0.97 |
-| *ViT only, no CLIP branch* | *0.82* | *0.90* | *0.92* | *0.95* | *0.99* | *0.99* |
+**Per-generator ROC-AUC on the organiser set** (all five are pixel-space
+diffusion; none appear in training):
 
-The frozen CLIP branch lifts the hardest family (ADM) from **0.82 → 0.89** —
-above the published ceiling of ~0.82 for methods that do not train on ADM.
+| | ADM | DDPM | DDIM | DALL·E | VQDM |
+|---|---|---|---|---|---|
+| clean | 0.937 | 0.913 | 0.970 | 0.984 | 0.995 |
+| mean-robust | 0.870 | 0.855 | 0.918 | 0.962 | 0.958 |
+
+ADM and DDPM are the hard cases and the reason for a deliberate data choice:
+pixel-space diffusion leaves no VAE fingerprint for a latent-diffusion-trained
+detector to key on. Adding 5,000 GenImage ADM/GLIDE images to training moved
+ADM's clean AUC from **0.478 — below chance — to 0.937**.
 
 ### Robustness — the 15-condition matrix
 
-Operating threshold 0.215 (calibrated on withheld generators). The Final
-Score is threshold-free; FPR/FNR are shown for completeness.
+Operating threshold 0.51 (calibrated on withheld generators). The Final Score
+is threshold-free; FPR/FNR are shown for completeness.
 
 | Condition | ROC-AUC | FPR | FNR |
 |---|---|---|---|
-| clean | 0.955 | 0.04 | 0.23 |
-| jpeg q90 / q70 / q50 / q30 | 0.94 / 0.92 / 0.89 / 0.85 | 0.04 / 0.05 / 0.06 / 0.07 | 0.27 / 0.34 / 0.42 / 0.48 |
-| blur σ0.5 / σ1 / σ2 | 0.96 / 0.94 / 0.87 | 0.03 / 0.07 / 0.44 | 0.25 / 0.21 / 0.08 |
-| resize 0.5× / 0.25× | 0.95 / 0.89 | 0.10 / 0.36 | 0.14 / 0.10 |
-| noise σ0.02 / σ0.05 / σ0.10 | 0.91 / 0.89 / 0.86 | 0.07 / 0.03 / 0.03 | 0.35 / 0.57 / 0.68 |
-| colour jitter ±20% | 0.95 | 0.05 | 0.21 |
-| centre crop 80% | 0.93 | 0.13 | 0.18 |
+| clean | 0.9597 | 0.067 | 0.163 |
+| jpeg q90 / q70 / q50 / q30 | 0.938 / 0.923 / 0.890 / 0.830 | 0.071 / 0.075 / 0.073 / 0.099 | 0.241 / 0.289 / 0.387 / 0.493 |
+| blur σ0.5 / σ1 / σ2 | 0.960 / 0.955 / 0.898 | 0.058 / 0.071 / 0.262 | 0.180 / 0.190 / 0.145 |
+| resize 0.5× / 0.25× | 0.958 / 0.871 | 0.073 / 0.134 | 0.171 / 0.315 |
+| noise σ0.02 / σ0.05 / σ0.10 | 0.928 / 0.890 / 0.830 | 0.059 / 0.075 / 0.102 | 0.325 / 0.438 / 0.540 |
+| colour jitter ±20% | 0.957 | 0.075 | 0.178 |
+| centre crop 80% | 0.949 | 0.080 | 0.181 |
 
-**Weakest condition: sensor noise** (σ0.10, AUC 0.86) — additive noise most
-directly overwrites the high-frequency evidence detectors lean on. Regenerate
-this table for any checkpoint with `bash finalize.sh <ckpt> <tag>`.
+**Weakest conditions: JPEG q30 and sensor noise σ0.10** (both AUC 0.830) —
+heavy re-compression and additive noise are the two transforms that most
+directly overwrite the high-frequency evidence detectors lean on. Note the
+floor: even there, AUC stays well above chance. Regenerate this table for any
+checkpoint with `bash finalize_local.sh <ckpt> <tag>`.
 
 ### Error analysis
 
@@ -110,62 +120,90 @@ Full note, per-condition FPR/FNR, and the file lists: [`docs/ERROR_ANALYSIS.md`]
 ## How it works
 
 ```
-Community Forensics ViT-S/16 @224   21,666,049 params   (frozen after warm-start)  → base logit
-  + frozen OpenAI CLIP ViT-B/16 branch   → LayerNorm → Linear(768→256) → near-zero-init residual Δ
-                                logit = base + Δ
+Community Forensics ViT-S/16 @224   21,666,049 params   → logit → P(AI)
 ```
+
+That is the whole model. The interesting work is in the two things feeding
+it — the preprocessing and the corpus — which is exactly what deck slide 10
+predicts: *"the biggest lever isn't a fancier model — it's what you train on."*
+We took that literally, and then tested it.
 
 - **Backbone** — `OwensLab/commfor-model-224` (timm
   `vit_small_patch16_224.augreg_in21k_ft_in1k`). A purpose-built AI-image
   detector; an independent 2026 benchmark ranks it #1 of 23 open detectors.
-- **Semantic branch** — `openai/clip-vit-base-patch16` vision tower,
-  **frozen**. We measured (and a parallel team independently measured) that a
-  *fine-tuned* backbone loses ~0.20 AUC seen→unseen while a *frozen* large ViT
-  loses only ~0.09 — freezing is what makes it generalise across generator
-  families. Semantic features don't depend on the artifact type, so they
-  bridge the GAN↔diffusion gap that low-level artifact features cannot.
-- **Near-zero-init residual fusion** — the branch head starts ≈0, so the
-  model begins numerically identical to the proven ViT and can only *add* a
-  correction. Deliberately **not** a per-branch auxiliary loss: that pressure
-  makes a shallow branch memorise training-generator spectra and *invert* on
-  unseen ones (a parallel team's frequency branch scored 0.457 — worse than
-  chance — that way).
-- **Trainable: ~200K** (the fusion head only). **Inference: ~108M** (22M ViT
-  + 86M frozen CLIP-B) — 18× under the 2B limit. Runs on a laptop CPU at
-  ~1 s/image.
-
-The CLIP branch was trained as a fusion head on *precomputed* frozen features
-(the CLIP forward is too slow to run live in the training loop on the Intel
-Arc iGPU this was built on), then trained with a feature-jitter augmentation
-that simulates the CLIP-embedding shift measured under degradation. That
-training path and the corpus-build scripts are archived with the maintainer;
-the shipped model is `runs/iter7/best.pt`.
+- **Crop from native pixels, never resize** (SAFE, KDD 2025) — `Resize(256)`
+  is a low-pass filter: it destroys the high-frequency artifact before the
+  model ever sees it. We crop 224×224 out of the original resolution instead.
+- **SAFE augmentation** — `RandomRotation(180)` + 16px patch masking, which
+  kill the colour and semantic shortcuts a detector will otherwise learn
+  instead of the artifact.
+- **Corpus built for the failure mode, not for the score** — 66,502 images:
+  SID_Set full-synthetic + 17 DRAGON generators + Community-Forensics-Small
+  (LatDiff / GAN / PixDiff / Other, for architecture diversity) + 5,000
+  GenImage ADM/GLIDE. That last piece exists solely because our own error
+  analysis showed pixel-space diffusion was where the detector was blind.
+- **21.7M params** — 92× under the 2B limit. Runs on a laptop **CPU** at
+  ~1 s/image; the bundled `demo_images/` score 6/6 correct there.
 
 ### What we tried that did **not** work (measured, not guessed)
 
-- A **SAFE-style DWT frequency branch** and a **hand-crafted NPR radial-
-  spectrum branch** — neither transferred to pixel-space diffusion, which by
-  construction has no sharp spectral peaks. Both dropped.
-- **CLIP ViT-L/14** — ~6 s/step on the iGPU, hung repeatedly. CLIP-B's
-  +0.014 Final Score is banked; L/14 would run on an NVIDIA box.
+This is the part we'd most want a judge to read. Three separate attempts to
+add a second branch, across two independent implementations, all failed to
+transfer — and the failures are what justify the simple final architecture.
+
+| Attempt | Seen validation | Held-out transfer | Verdict |
+|---|---|---|---|
+| **DWT wavelet branch** (iter5b) | +0.0006 AUC | organiser 0.8804 → 0.8800, DRAGON flat | dropped |
+| **Frozen CLIP-B branch** (iter6b) | +0.0002 AUC | organiser 0.9362 → **0.9362**, every generator within ±0.001 | dropped |
+| **FFT spectrum branch** (earlier) | positive | 0.457 AUC on unseen generators — *worse than chance* | dropped |
+
+The pattern: **an auxiliary branch's value is bounded by what the base ViT is
+still missing.** On a weaker base (no native-crop, no pixel-diffusion data) a
+frozen CLIP branch is worth ~+0.02 Final Score. On the base described above,
+it is worth nothing measurable — the training-side fixes had already closed
+the gap it was compensating for. So we shipped the model without it: same
+accuracy, **⅕ the parameters**, one checkpoint, no separate fusion-head
+training pass.
+
+Full ablation tables and the reasoning at each step:
+[`docs/EXPERIMENTS_LOG.md`](docs/EXPERIMENTS_LOG.md).
+
+### The bug we found in our own benchmark
+
+Our first organiser-set score was **0.8131**. Then a size-only probe — a
+"classifier" that sees nothing but the image's pixel count — scored **AUC
+1.000** on that set. WildFake ships fakes at fixed 256×256; COCO reals are
+photographic resolutions. Every fake was smaller than every real, so the set
+was partly measuring *file headers*, not detection.
+
+We rebuilt it by centre-cropping both classes to a common native size (size-only
+AUC → **0.500**) and re-scored. The honest number was **0.7007**, and we
+published the correction rather than the flattering original. Every result in
+this README is measured on the corrected set.
 
 ---
 
 ## Trade-offs (the deck asks for this explicitly)
 
-- **Robustness vs clean accuracy** — heavy augmentation cost a little clean
-  training accuracy; clean AUC held and robust AUC rose. Worth it.
-- **Generalisation vs specialisation** — we hold six generator families
+- **Robustness vs clean accuracy** — training on a harder, more diverse corpus
+  *lowered* seen-validation AUC (0.9866 → 0.9807) while raising held-out
+  organiser Final Score (0.8804 → 0.9362). We optimised the number that
+  generalises, not the one that looks best in training.
+- **Generalisation vs specialisation** — five generator families are held
   *fully* out of training. A detector tuned on them scores higher on this
   benchmark and breaks on the next generator. We optimised for the break.
-- **Complexity vs feasibility** — ~108M params, runs on a laptop CPU, one
-  checkpoint, one `uvicorn` command. The deck: *"a 2-branch ensemble may win
-  1% but cost you the demo — ship what runs."*
+- **Complexity vs feasibility** — we had a 108M two-branch variant that scored
+  *identically* (0.9362) and shipped the 21.7M single-branch one instead. The
+  deck: *"a 2-branch ensemble may win 1% but cost you the demo — ship what
+  runs."* Here it won 0.0000, so the choice was easy.
 - **One threshold vs the generator spread** — pixel-diffusion fakes score
   systematically lower than latent-diffusion fakes, so no single cutoff is
-  optimal for both (FNR on the organiser set is ~23% at the DRAGON-calibrated
-  threshold vs ~2% on DRAGON itself). The scored metric is threshold-free;
+  optimal for both (organiser FNR is 16.3% at the calibrated threshold vs
+  3.5% on DRAGON). The scored metric is threshold-free;
   `detector/calibrate.py` lets an operator refit per deployment.
+- **False positives are the expensive error** — flagging a real photo as AI
+  is worse for a platform than missing one fake. Clean FPR is **6.7%** and we
+  report it at every condition rather than only the AUC.
 
 There is **no silver bullet** — modern flow/DiT generators (SD3, Flux,
 Firefly) are the frontier where every open detector still collapses, and they
@@ -177,14 +215,14 @@ are named honestly in [Limitations](#limitations).
 
 | Rule | This submission |
 |---|---|
-| Model < 2B parameters | **107,680,386** (18× under) |
-| Public pretrained backbones only | `OwensLab/commfor-model-224`, `openai/clip-vit-base-patch16` — both public |
+| Model < 2B parameters | **21,666,049** (92× under) |
+| Public pretrained backbones only | `OwensLab/commfor-model-224` — public, Apache-2.0 |
 | Custom code MIT/Apache | Apache-2.0 (this repo) |
-| Public/licensed data only, no test-label training | SID_Set · DRAGON · Community-Forensics-Small. `detector/data.py:assert_not_eval_only` **hard-fails** if an `eval_only_*` path reaches the training or calibration code |
-| Augmentation scripts included | [`detector/transforms.py`](detector/transforms.py) |
-| No "directly replicate an existing model" | novel fusion of two public backbones + a feature-jitter calibration step; negative results documented |
-| Winning teams open-source everything | pipeline, hyperparameters (`config.yaml`), eval code, weights — all here / on HF |
-| Submission: repo + run script + Devpost + demo video | this repo, `run_iteration.sh`, Devpost, YouTube |
+| Public/licensed data only, no test-label training | SID_Set · DRAGON · Community-Forensics-Small · GenImage. `detector/data.py:assert_not_eval_only` **hard-fails** if an `eval_only_*` path reaches the training or calibration code |
+| Augmentation scripts included | [`detector/transforms.py`](detector/transforms.py), [`scripts/build_iter6_corpus.py`](scripts/build_iter6_corpus.py) |
+| No "directly replicate an existing model" | a public backbone plus an original preprocessing + corpus design, with three documented negative results establishing why the simple architecture is the right one |
+| Winning teams open-source everything | pipeline, hyperparameters (`config.yaml`), corpus builder, eval code, and weights are **all in this repo or its release** — `config.yaml` as committed reproduces the shipped checkpoint, with nothing held back locally |
+| Submission: repo + run script + Devpost + demo video | this repo, `run.bat` / `run.sh`, Devpost, YouTube |
 
 **Scope** (slide 17): image-level binary detection only — no video/audio, no
 production deployment, no localisation. Consistent with this project.
@@ -215,14 +253,14 @@ pip install -r requirements-cuda.txt          # NVIDIA / CPU
 python pipeline.py predict \
   --input demo_images \
   --output predictions.json \
-  --checkpoint runs/iter7/best.pt \
+  --checkpoint runs/iter6/best.pt \
   --device auto
 ```
 
 `predictions.json` → `[{"image_path": "...", "pred": 0|1}]`.
 `predictions.scores.csv` → the calibrated `probability_ai` alongside.
 
-> `runs/iter7/best.pt` is ~88 MB and **not in git** (large binary). Download
+> `runs/iter6/best.pt` is ~88 MB and **not in git** (large binary). Download
 > it from the HuggingFace model repo linked at the top, or run
 > `python hf_upload/upload.py` to publish your own copy. The frozen CLIP
 > weights are rebuilt from the pinned public checkpoint on load, so the file
@@ -232,7 +270,7 @@ python pipeline.py predict \
 
 ```bash
 pip install fastapi uvicorn python-multipart
-DETECTOR_CHECKPOINT=runs/iter7/best.pt uvicorn webapp.server:app --port 8000
+DETECTOR_CHECKPOINT=runs/iter6/best.pt uvicorn webapp.server:app --port 8000
 # open http://localhost:8000
 ```
 
@@ -328,19 +366,35 @@ point, not the model.
 
 ## Limitations
 
-- **Sensor noise** (σ0.10) is the weakest condition (AUC 0.86).
-- **ADM** (2021 pixel-diffusion) is the hardest family; ~0.82 is the
-  published ceiling for methods that don't train on it, we reach 0.89.
+- **JPEG q30 and sensor noise σ0.10** are the weakest conditions (both AUC
+  0.830) — the two transforms that most directly erase high-frequency
+  evidence.
+- **DDPM and ADM** (2021 pixel-diffusion) remain the hardest families
+  (robust AUC 0.855 / 0.870) even after adding pixel-diffusion training data.
 - **Modern flow / DiT generators** (SD3, Flux, Firefly) — the frontier where
   every open detector still collapses; not in this evaluation.
 - **Localised edits** (a real photo with one AI-generated region) are out of
-  scope — whole-image classification only.
+  scope — whole-image classification only, which is why the mixed SID_Set
+  number (0.8481) is the lowest of the three we report.
 - One fixed threshold cannot be optimal across pixel-space and latent
   diffusion at once — the score is threshold-free and the recipe is shipped.
+- **The margin over a two-branch variant is not statistically meaningful.**
+  0.9362 vs a 108M-parameter alternative at 0.9362 on a 2,000-image set is a
+  tie; we chose the smaller model on parameter count and reproducibility, not
+  on a claimed accuracy win.
 - This is a hackathon prototype, not a production moderation system.
 
 ---
 
 ## License
 
-Apache-2.0. Backbones are used under their own public licenses.
+Code and released weights: **Apache-2.0**. Backbones are used under their own
+public licenses (`OwensLab/commfor-model-224`, Apache-2.0).
+
+**Training-data note, stated plainly:** one of the four training sources,
+[Community-Forensics-Small](https://huggingface.co/datasets/OwensLab/CommunityForensics-Small),
+is licensed **CC-BY-NC-SA-4.0** — non-commercial, share-alike. Model weights
+are not a derivative work of the training data under most readings, and this
+is a research/hackathon artifact, but anyone considering commercial use
+should evaluate that themselves rather than rely on the Apache-2.0 tag alone.
+SID_Set, DRAGON and GenImage carry no such restriction.

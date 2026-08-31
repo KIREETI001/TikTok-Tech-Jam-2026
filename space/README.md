@@ -41,7 +41,7 @@ bash space/deploy.sh <your-hf-username>/ttj-aigc-detector
 ```
 
 Assembles `space/build/` (this folder + `detector/` + `webapp/` +
-`runs/iter7/best.pt`) and uploads it via the `huggingface_hub` API — no git
+`runs/iter6/best.pt`) and uploads it via the `huggingface_hub` API — no git
 or git-lfs. First build downloads and bakes in the CLIP-B weights (~350 MB),
 so it takes a few minutes; after that the container starts in seconds.
 

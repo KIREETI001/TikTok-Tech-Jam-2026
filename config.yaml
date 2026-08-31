@@ -24,9 +24,26 @@
 # generators) + Community-Forensics-Small (6 real + 8 fake shards, spread
 # across LatDiff/GAN/PixDiff/Other/Real) + GenImage ADM/GLIDE. Verified
 # counts: real=26,361 fake=40,141 (66,502 total) -- in line with iter4's
-# own ~61k corpus. Once this has its own validated checkpoint, iteration 6b
-# layers branch_kind: clip on top (the same architecture as iter7, not the
-# wavelet/FFT dead end from iter5b/iter7's own README).
+# own ~61k corpus.
+#
+# iter6a RESULT (docs/EXPERIMENTS_LOG.md section 15): organiser Final
+# 0.9362, already above iter7's 0.933, from training-data + augmentation
+# fixes alone -- no CLIP branch. Beats iter7 outright on ADM (iter7's own
+# weakest generator) and DDIM. SID_Set/DRAGON still trail iter7's self-
+# reported numbers.
+#
+# iter6b (tried, docs/EXPERIMENTS_LOG.md section 16): branch_kind: clip on
+# runs/iter6/best.pt -- same frozen CLIP-B architecture as iter7. RESULT:
+# organiser 0.9362 -> 0.9362 (exactly flat), every held-out set and every
+# per-generator number within 0.001 of iter6a. The CLIP branch measurably
+# helped iter7's undertrained base (+0.02) but has nothing left to add once
+# crop_from_native+SAFE+CF-Small diversity already closed that gap at the
+# training-data level -- the same pattern iter5b found for the wavelet
+# branch. runs/iter6b/best.pt kept on disk, not adopted.
+#
+# FINAL: runs/iter6/best.pt (below, iter6a) is this project's best and
+# production checkpoint -- equal accuracy to iter6b at a quarter of the
+# parameters (21.7M vs 107.7M), no separate fusion-head pass needed.
 
 data_source: local
 data_dir: ../iter6_data/train
@@ -38,9 +55,8 @@ seed: 2026
 validation_fraction: 0.12
 
 batch_size: 16
-# 10, matching iter4/iter7's own recipe scale -- this is a fresh ViT run
-# on a comparably-sized corpus (66.5k vs their ~61k), not a small
-# fusion-head-only pass like iter5b's 5 epochs.
+# 10, matching iter4/iter7's own recipe scale -- a fresh ViT run on a
+# comparably-sized corpus (66.5k vs their ~61k).
 epochs: 10
 learning_rate: 0.00002
 weight_decay: 0.01

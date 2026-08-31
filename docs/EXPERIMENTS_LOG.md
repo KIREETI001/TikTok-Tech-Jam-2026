@@ -1443,3 +1443,51 @@ Next: iteration 6b, `branch_kind: clip`, `vit_checkpoint: runs/iter6/best.pt`
 iteration's stronger base rather than iter4's, testing whether the two
 mechanisms (training-time fix + inference-time semantic branch) are
 additive as hypothesised.
+
+## 16. Iteration 6b: the CLIP branch adds nothing on top of iter6a -- final result
+
+Trained `branch_kind: clip` (frozen CLIP-B, `SemanticBranch`, same
+architecture as iter7) on top of `runs/iter6/best.pt`, 5 epochs, ViT half
+frozen (`HybridDetector.configure_finetuning`) -- only the CLIP branch's
+LayerNorm+projection and fusion head train. 107,680,386 total parameters
+(+86,014,337 over iter6a's 21,666,049 -- the frozen CLIP-B encoder).
+Seen-val AUC 0.9807 -> 0.9809, the same negligible bump this project has
+now seen from every frozen-auxiliary-branch pass regardless of mechanism.
+
+Held-out, identical `finalize_local.sh` pipeline:
+
+| Held-out set | iter6a | iter6b | delta |
+|---|---|---|---|
+| SID_Set | 0.8481 | 0.8480 | -0.0001 |
+| DRAGON | 0.9779 | 0.9782 | +0.0003 |
+| **Organiser** | 0.9362 | 0.9362 | 0.0000 |
+
+Per-generator, identical to iter6a within noise on every one (adm 0.870 ->
+0.871, ddim 0.918 -> 0.917, ddpm/dalle/vqdm unchanged to 3dp). Every
+per-condition robustness number matches iter6a to within 0.001 too.
+
+**The CLIP branch measurably helped iter7's base (0.9126 -> 0.933, +0.02,
+per their own README) but adds nothing measurable here.** The honest
+reading: iter7's frozen-CLIP semantic features filled a real gap in
+iter4's undertrained ViT (no crop_from_native/SAFE, no pixel-space
+diffusion in training). iter6a's ViT already closed that gap at the
+training-data level -- more diverse corpus, native-pixel artifact
+preservation -- leaving the CLIP branch nothing marginal to contribute,
+the same pattern iter5b found for the wavelet branch and iter7's own
+README reports for FFT/wavelet: an auxiliary branch's value is bounded by
+what the base ViT is still missing, and this base isn't missing much.
+
+**Final decision for this device's line of work: `runs/iter6/best.pt`
+(iter6a) is the best and production checkpoint** -- equal accuracy to
+iter6b at a quarter of the parameters (21.7M vs 107.7M) and no separate
+fusion-head training pass required. `runs/iter6b/best.pt` is kept on disk
+for reference but not adopted.
+
+Organiser Final Score 0.9362 exceeds the teammate's shipped iter7 (0.933)
+on the brief's actual scored composition, achieved via corpus + augmentation
+fixes alone, with the simpler of the two architectures this project ever
+tried. Whether this becomes the team's actual submission is a decision for
+the team, not made here -- see the open item this branch was created to
+surface. This closes the `final-stretch` branch's model-development work;
+remaining tasks are webapp integration (Phase 5) and commit/push (Phase 6),
+both preparation only per the standing constraint on submission actions.

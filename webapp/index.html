@@ -3,192 +3,263 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Real or Generated</title>
+<title>Chain of Custody — AI image detector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,900&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
-  :root {
-    --bg: #0F1216;
-    --panel: #171C22;
-    --panel-2: #1E242C;
-    --line: #2A323C;
-    --ink: #E6EAEF;
-    --ink-dim: #97A1AD;
-    --real-ok: #35B37E;
-    --ai: #E06A55;
-    --accent: #5B9BD5;
-    --mono: ui-monospace, "SF Mono", "IBM Plex Mono", Menlo, monospace;
-  }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #F5F7FA; --panel: #FFFFFF; --panel-2: #F0F3F7; --line: #DDE3EA;
-      --ink: #131820; --ink-dim: #5C6773; --accent: #2E6FB0;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--ink);
-    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
-    padding: 2.5rem 1.25rem 4rem;
-  }
-  .wrap { max-width: 940px; margin: 0 auto; }
+:root{
+  --void:#0B0E11; --sheet:#141A20; --sheet-2:#1A222A;
+  --print:#EDE9E1; --dim:#8A97A3; --edge:#232C34;
+  --halide:#E2703A;   /* AI-generated */
+  --fixer:#4FA8B8;    /* authentic    */
+  --r-out:12px; --r-in:6px;
+}
+*{box-sizing:border-box}
+html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+body{
+  margin:0;background:var(--void);color:var(--print);
+  font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:15px;line-height:1.6;
+}
+img{outline:1px solid rgba(255,255,255,.1);outline-offset:-1px}
+.mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
 
-  header { margin-bottom: 1.75rem; }
-  h1 { font-size: 1.65rem; font-weight: 600; margin: 0 0 .35rem; letter-spacing: -.02em; }
-  .sub { color: var(--ink-dim); margin: 0; font-size: .95rem; max-width: 62ch; }
+/* ---------- masthead ---------- */
+.mast{border-bottom:1px solid var(--edge);position:sticky;top:0;z-index:20;
+  background:rgba(11,14,17,.9);backdrop-filter:blur(8px)}
+.mast .wrap{display:flex;align-items:center;justify-content:space-between;
+  gap:16px;padding-top:14px;padding-bottom:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:baseline;gap:10px}
+.brand b{font-family:'Fraunces',Georgia,serif;font-weight:900;font-size:19px;letter-spacing:-.01em}
+.brand span{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--dim);letter-spacing:.1em;text-transform:uppercase}
+#health{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--dim);
+  font-variant-numeric:tabular-nums;text-align:right}
+#health .live{color:var(--fixer)}
 
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-  @media (max-width: 780px) { .grid { grid-template-columns: 1fr; } }
+/* ---------- hero ---------- */
+.hero{padding:56px 0 34px;border-bottom:1px solid var(--edge)}
+.hero h1{font-family:'Fraunces',Georgia,serif;font-weight:900;
+  font-size:clamp(30px,4.6vw,50px);line-height:1.05;margin:0 0 16px;
+  letter-spacing:-.02em;text-wrap:balance;max-width:18ch}
+.hero p{margin:0;color:var(--dim);max-width:60ch;font-size:16.5px;text-wrap:pretty}
+.hero p b{color:var(--print);font-weight:600}
 
-  .panel {
-    background: var(--panel); border: 1px solid var(--line);
-    border-radius: 10px; padding: 1.15rem;
-  }
+/* ---------- stage ---------- */
+.stage{display:grid;grid-template-columns:minmax(0,360px) minmax(0,1fr);
+  gap:28px;padding:34px 0;align-items:start}
+@media(max-width:820px){.stage{grid-template-columns:1fr}}
 
-  #drop {
-    border: 1.5px dashed var(--line); border-radius: 8px; padding: 2.25rem 1rem;
-    text-align: center; cursor: pointer; color: var(--ink-dim);
-    transition: border-color .15s, background .15s;
-  }
-  #drop:hover, #drop.over { border-color: var(--accent); background: var(--panel-2); }
-  #bdrop {
-    border: 1.5px dashed var(--line); border-radius: 8px; padding: 1.4rem 1rem;
-    text-align: center; cursor: pointer; color: var(--ink-dim);
-    transition: border-color .15s, background .15s;
-  }
-  #bdrop:hover, #bdrop.over { border-color: var(--accent); background: var(--panel-2); }
-  #bdrop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  #btable td.v { text-align: right; font-weight: 600; width: 6rem; }
-  #btable td.v.ai { color: var(--ai); } #btable td.v.real { color: var(--real-ok); }
-  #btable td.f { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #drop.has { padding: .75rem; border-style: solid; }
-  #drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  #preview { max-width: 100%; max-height: 260px; border-radius: 6px; display: block; margin: 0 auto; }
-  .hint { font-size: .8rem; color: var(--ink-dim); margin-top: .6rem; text-align: center; }
+#drop{
+  border:1px dashed var(--edge);border-radius:var(--r-out);background:var(--sheet);
+  min-height:260px;display:grid;place-items:center;padding:14px;cursor:pointer;
+  transition-property:border-color,background-color;transition-duration:160ms;
+  transition-timing-function:ease-out;
+}
+#drop:hover,#drop.over{border-color:var(--fixer);background:var(--sheet-2)}
+#drop:focus-visible{outline:2px solid var(--fixer);outline-offset:3px}
+#drop.has{border-style:solid;padding:8px}
+#dropText{color:var(--dim);font-size:14px;text-align:center;text-wrap:balance;padding:0 18px}
+#preview{max-width:100%;max-height:320px;border-radius:var(--r-in);display:block}
+.hint{color:var(--dim);font-size:12px;margin-top:10px;text-wrap:pretty}
 
-  .verdict { text-align: center; padding: .5rem 0 .25rem; }
-  .call { font: 700 1.9rem/1.1 system-ui, sans-serif; letter-spacing: -.02em; }
-  .call.real { color: var(--real-ok); }
-  .call.ai { color: var(--ai); }
-  .conf { font-size: .85rem; color: var(--ink-dim); margin-top: .45rem; min-height: 1.2em; }
-  .meta { font: .78rem/1.5 var(--mono); color: var(--ink-dim); text-align: center; margin-top: .75rem; min-height: 1.2em; }
+.verdict{border:1px solid var(--edge);border-radius:var(--r-out);
+  background:var(--sheet);padding:26px 26px 22px;min-height:260px;
+  display:flex;flex-direction:column;justify-content:center}
+.call{font-family:'Fraunces',Georgia,serif;font-weight:900;
+  font-size:clamp(30px,5vw,52px);line-height:1;letter-spacing:-.02em;
+  color:var(--dim);transition-property:color;transition-duration:220ms}
+.call.ai{color:var(--halide)} .call.real{color:var(--fixer)}
+.conf{margin-top:12px;color:var(--dim);font-size:14.5px;min-height:22px;text-wrap:pretty}
+.bar{position:relative;height:5px;background:var(--sheet-2);border-radius:99px;margin:22px 0 8px}
+.bar i{position:absolute;top:-4px;width:13px;height:13px;border-radius:50%;
+  background:var(--print);transform:translateX(-50%);left:0;
+  transition-property:left,background-color;transition-duration:420ms;
+  transition-timing-function:cubic-bezier(.22,1,.36,1)}
+.bar .thr{position:absolute;top:-5px;width:1px;height:15px;background:var(--dim);opacity:.65}
+.scale{display:flex;justify-content:space-between;font-size:11.5px;color:var(--dim);
+  font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
+.meta{margin-top:14px;font-family:'IBM Plex Mono',monospace;font-size:11.5px;
+  color:var(--dim);font-variant-numeric:tabular-nums;text-wrap:pretty}
 
-  .bar { position: relative; height: 8px; border-radius: 4px; overflow: visible;
-         margin: 1.1rem 0 .35rem;
-         background: linear-gradient(90deg, var(--real-ok), #C9A227 55%, var(--ai)); }
-  .bar > i { position: absolute; top: -3px; width: 3px; height: 14px; border-radius: 2px;
-             background: var(--ink); transform: translateX(-50%); left: 0; transition: left .3s; }
-  .bar .thr { position: absolute; top: -6px; bottom: -6px; width: 0;
-              border-left: 1.5px dashed var(--ink-dim); }
-  .scale { display: flex; justify-content: space-between; font-size: .72rem; color: var(--ink-dim);
-           letter-spacing: .04em; }
-  .scale #probTxt { font-family: var(--mono); }
+button{
+  font:inherit;font-size:14px;font-weight:500;color:var(--print);
+  background:var(--sheet-2);border:1px solid var(--edge);border-radius:var(--r-in);
+  padding:11px 16px;min-height:42px;cursor:pointer;
+  transition-property:transform,background-color,border-color;
+  transition-duration:140ms;transition-timing-function:ease-out;
+}
+button:hover:not(:disabled){border-color:var(--fixer);background:#1E2831}
+button:active:not(:disabled){transform:scale(.97)}
+button:focus-visible{outline:2px solid var(--fixer);outline-offset:2px}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.primary{background:var(--fixer);color:#08171B;border-color:var(--fixer);font-weight:600}
+button.primary:hover:not(:disabled){background:#63BECD;border-color:#63BECD}
 
-  button {
-    font: 500 .9rem system-ui, sans-serif; color: var(--ink);
-    background: var(--panel-2); border: 1px solid var(--line);
-    border-radius: 7px; padding: .55rem 1rem; cursor: pointer; width: 100%;
-  }
-  button:hover:not(:disabled) { border-color: var(--accent); }
-  button:disabled { opacity: .45; cursor: default; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #08121C; font-weight: 600; }
-  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* ---------- the gauntlet ---------- */
+.gauntlet{padding:8px 0 44px}
+.gsplit{display:flex;align-items:baseline;justify-content:space-between;gap:16px;
+  flex-wrap:wrap;margin-bottom:6px}
+.gauntlet h2{font-family:'Fraunces',Georgia,serif;font-weight:600;
+  font-size:26px;margin:0;letter-spacing:-.01em;text-wrap:balance}
+.gauntlet .lede{color:var(--dim);max-width:64ch;margin:0 0 22px;text-wrap:pretty}
+#verdictLine{font-family:'IBM Plex Mono',monospace;font-size:12.5px;
+  color:var(--dim);font-variant-numeric:tabular-nums}
+#verdictLine b{color:var(--fixer)}
+#verdictLine b.broke{color:var(--halide)}
 
-  h2 { font-size: .78rem; letter-spacing: .09em; text-transform: uppercase;
-       color: var(--ink-dim); margin: 0 0 .85rem; font-weight: 600; }
+.family{margin-bottom:22px}
+.family h3{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.13em;
+  text-transform:uppercase;color:var(--dim);margin:0 0 10px;font-weight:500;
+  display:flex;align-items:center;gap:10px}
+.family h3::after{content:"";flex:1;height:1px;background:var(--edge)}
+.frames{display:flex;gap:12px;overflow-x:auto;padding-bottom:6px;scrollbar-width:thin}
+.frame{
+  flex:0 0 auto;width:132px;border:1px solid var(--edge);border-radius:var(--r-out);
+  background:var(--sheet);padding:8px;opacity:0;transform:translateY(6px);
+  animation:in 320ms cubic-bezier(.22,1,.36,1) forwards;
+}
+@keyframes in{to{opacity:1;transform:none}}
+.frame.ai{border-color:rgba(226,112,58,.55)}
+.frame.real{border-color:rgba(79,168,184,.45)}
+.frame.base{border-color:var(--print)}
+.frame img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:var(--r-in);display:block}
+.frame .lab{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--dim);
+  margin-top:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.frame .row{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:3px}
+.frame .p{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:500;
+  font-variant-numeric:tabular-nums}
+.frame.ai .p{color:var(--halide)} .frame.real .p{color:var(--fixer)}
+.pip{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+.frame.ai .pip{background:var(--halide)} .frame.real .pip{background:var(--fixer)}
 
-  table { width: 100%; border-collapse: collapse; font-size: .82rem; }
-  th { text-align: left; font-weight: 600; color: var(--ink-dim); font-size: .7rem;
-       letter-spacing: .07em; text-transform: uppercase; padding-bottom: .5rem; }
-  td { padding: .28rem 0; border-top: 1px solid var(--line); }
-  td.n { font-family: var(--mono); text-align: right; width: 4.5rem; font-variant-numeric: tabular-nums; }
-  td.g { width: 45%; padding-left: .75rem; padding-right: .75rem; }
-  .mini { height: 5px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
-  .mini > i { display: block; height: 100%; }
+.skeleton{background:linear-gradient(90deg,var(--sheet) 25%,var(--sheet-2) 50%,var(--sheet) 75%);
+  background-size:200% 100%;animation:sweep 1.1s linear infinite;
+  width:132px;height:186px;border-radius:var(--r-out);flex:0 0 auto}
+@keyframes sweep{to{background-position:-200% 0}}
 
-  .err { color: var(--ai); font-size: .85rem; margin-top: .6rem; min-height: 1.2em; }
-  .note { font-size: .8rem; color: var(--ink-dim); margin-top: .9rem; line-height: 1.5; }
-  .cfg { margin-top: 1rem; }
-  .cfg input {
-    width: 100%; font: .78rem var(--mono); color: var(--ink); background: var(--panel-2);
-    border: 1px solid var(--line); border-radius: 6px; padding: .45rem .6rem; margin-top: .35rem;
-  }
-  footer { margin-top: 2rem; font-size: .78rem; color: var(--ink-dim); text-align: center; }
-  .spin { display: inline-block; width: .8em; height: .8em; border: 2px solid var(--line);
-          border-top-color: var(--accent); border-radius: 50%; animation: r .7s linear infinite; }
-  @keyframes r { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } * { transition: none !important; } }
+/* ---------- secondary ---------- */
+details{border-top:1px solid var(--edge);padding:20px 0}
+summary{cursor:pointer;font-weight:600;font-size:15px;list-style:none;
+  display:flex;align-items:center;gap:10px;min-height:40px}
+summary::-webkit-details-marker{display:none}
+summary::before{content:"+";font-family:'IBM Plex Mono',monospace;color:var(--fixer);font-size:16px}
+details[open] summary::before{content:"–"}
+summary:focus-visible{outline:2px solid var(--fixer);outline-offset:3px;border-radius:4px}
+.sub{color:var(--dim);font-size:13.5px;margin:2px 0 16px 26px;text-wrap:pretty}
+.inner{padding-left:26px}
+#bdrop{border:1px dashed var(--edge);border-radius:var(--r-in);background:var(--sheet);
+  padding:20px;text-align:center;color:var(--dim);font-size:13.5px;cursor:pointer;min-height:44px;
+  transition-property:border-color;transition-duration:150ms}
+#bdrop:hover,#bdrop.over{border-color:var(--fixer)}
+#bdrop:focus-visible{outline:2px solid var(--fixer);outline-offset:3px}
+.btnrow{display:flex;gap:9px;margin-top:12px;flex-wrap:wrap}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:14px}
+th{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--dim);text-align:left;font-weight:500;
+  padding:8px 10px;border-bottom:1px solid var(--edge)}
+td{padding:9px 10px;border-bottom:1px solid var(--edge)}
+td.n{font-family:'IBM Plex Mono',monospace;text-align:right;font-variant-numeric:tabular-nums}
+td.ai{color:var(--halide)} td.real{color:var(--fixer)}
+input{width:100%;background:var(--sheet);color:var(--print);
+  border:1px solid var(--edge);border-radius:var(--r-in);padding:11px 13px;
+  font-family:'IBM Plex Mono',monospace;font-size:13px;min-height:42px}
+input:focus-visible{outline:2px solid var(--fixer);outline-offset:1px}
+.err{color:var(--halide);font-size:13px;margin-top:9px;min-height:18px;text-wrap:pretty}
+.note{color:var(--dim);font-size:12.5px;margin-top:12px;text-wrap:pretty}
+footer{border-top:1px solid var(--edge);padding:26px 0 46px;color:var(--dim);
+  font-size:12.5px;text-wrap:pretty}
+.spin{display:inline-block;width:13px;height:13px;border:2px solid var(--edge);
+  border-top-color:var(--fixer);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important}
+}
 </style>
 </head>
 <body>
+
+<div class="mast"><div class="wrap">
+  <div class="brand"><b>Chain of Custody</b><span>AI image detector</span></div>
+  <div id="health">connecting…</div>
+</div></div>
+
 <div class="wrap">
 
-<header>
-  <h1>Real or Generated</h1>
-  <p class="sub">Upload an image &mdash; get a verdict (authentic or AI-generated) with a calibrated confidence, then check whether that verdict survives the compression, blur, resizing and noise every image picks up in circulation.</p>
-</header>
+  <section class="hero">
+    <h1>An image changes on its way to you.</h1>
+    <p>Compression, resizing, a screenshot of a screenshot — by the time a picture reaches your feed it is not the file that left the generator. Most detectors quietly stop working somewhere along that path. <b>Drop an image below and watch this one survive it.</b></p>
+  </section>
 
-<div class="grid">
-  <div class="panel">
-    <div id="drop" tabindex="0" role="button" aria-label="Choose an image to analyse">
-      <div id="dropText">Choose an image, or drop one here</div>
-      <img id="preview" alt="Selected image preview" hidden>
+  <section class="stage">
+    <div>
+      <div id="drop" tabindex="0" role="button" aria-label="Choose an image to analyse">
+        <div id="dropText">Drop an image here, or click to choose</div>
+        <img id="preview" alt="Selected image preview" hidden>
+      </div>
+      <div class="hint">JPEG · PNG · WebP, up to 25 MB. Scored in memory and discarded — nothing is stored.</div>
+      <input id="file" type="file" accept="image/*" hidden>
+      <div class="err" id="err" role="alert"></div>
     </div>
-    <div class="hint">JPEG &middot; PNG &middot; WebP &mdash; up to 25 MB. Scored in memory, not stored.</div>
-    <input id="file" type="file" accept="image/*" hidden>
-    <div class="err" id="err" role="alert"></div>
-  </div>
 
-  <div class="panel">
     <div class="verdict">
-      <div class="call" id="call">&mdash;</div>
-      <div class="conf" id="conf"></div>
+      <div class="call" id="call">Awaiting an image</div>
+      <div class="conf" id="conf">The verdict and its confidence appear here.</div>
+      <div class="bar" id="barWrap"><i id="bar"></i><span class="thr" id="thrMark" hidden></span></div>
+      <div class="scale"><span>authentic</span><span id="probTxt">P(AI) —</span><span>AI-generated</span></div>
+      <div class="meta" id="meta"></div>
+      <div style="margin-top:18px">
+        <button id="robustBtn" class="primary" disabled>Run the gauntlet — 15 conditions</button>
+      </div>
     </div>
-    <div class="bar" id="barWrap"><i id="bar"></i><span class="thr" id="thrMark" hidden></span></div>
-    <div class="scale"><span>authentic</span><span id="probTxt">P(AI) &mdash;</span><span>AI</span></div>
-    <div class="meta" id="meta"></div>
-    <div style="margin-top:1rem">
-      <button id="robustBtn" class="primary" disabled>Test robustness &nbsp;&middot;&nbsp; 15 conditions</button>
+  </section>
+
+  <section class="gauntlet" id="gauntlet" hidden>
+    <div class="gsplit">
+      <h2>The same image, after the internet gets to it</h2>
+      <div id="verdictLine"></div>
     </div>
-    <p class="note">Neural detectors are <strong>decisive by design</strong> — a BCE-trained model pushes its score to near 0 or 1 for any image it can classify, so most results read as "decisive". The meaningful output is the verdict and its rank; the competition scores threshold-free ROC-AUC, not the raw percentage.</p>
-  </div>
-</div>
+    <p class="lede">Every frame below is your image, actually degraded — not a simulation of the score. The competition weights clean and degraded performance equally, so this is the half of the result a clean verdict alone cannot show.</p>
+    <div id="families"></div>
+    <p class="note" id="spreadNote"></p>
+  </section>
 
-<div class="panel" id="robustPanel" style="margin-top:1rem" hidden>
-  <h2>Verdict under the evaluation grid</h2>
-  <table>
-    <thead><tr><th>Condition</th><th class="g"></th><th style="text-align:right">P(AI)</th><th style="text-align:right">call</th></tr></thead>
-    <tbody id="robustRows"></tbody>
-  </table>
-  <p class="note" id="spreadNote"></p>
-</div>
+  <details>
+    <summary>Score a folder</summary>
+    <p class="sub">The same scoring the command line does, for up to 200 images at once.</p>
+    <div class="inner">
+      <div id="bdrop" tabindex="0" role="button" aria-label="Choose images to score">Drop images or a folder here</div>
+      <input id="bfile" type="file" accept="image/*" multiple hidden>
+      <input id="bdir" type="file" webkitdirectory hidden>
+      <div class="btnrow">
+        <button id="bpick">Pick files</button>
+        <button id="bpickdir">Pick folder</button>
+        <button id="bcsv" disabled>Download CSV</button>
+      </div>
+      <p class="meta" id="bsummary"></p>
+      <div class="err" id="berr" role="alert"></div>
+      <table id="btable" hidden>
+        <thead><tr><th>File</th><th style="text-align:right">P(AI)</th><th style="text-align:right">Verdict</th></tr></thead>
+        <tbody id="brows"></tbody>
+      </table>
+    </div>
+  </details>
 
-<div class="panel" style="margin-top:1rem">
-  <h2>Score many images at once</h2>
-  <div id="bdrop" tabindex="0" role="button" aria-label="Choose images to score">
-    Choose images (or a folder), or drop them here
-  </div>
-  <div class="hint">Up to 200 files per batch. Scored in memory, nothing stored.</div>
-  <input id="bfile" type="file" accept="image/*" multiple hidden>
-  <input id="bdir"  type="file" webkitdirectory hidden>
-  <div style="display:flex; gap:.6rem; margin-top:.8rem">
-    <button id="bpick">Pick files</button>
-    <button id="bpickdir">Pick folder</button>
-    <button id="bcsv" disabled>Download CSV</button>
-  </div>
-  <p class="meta" id="bsummary" style="text-align:left"></p>
-  <div class="err" id="berr" role="alert"></div>
-  <table id="btable" hidden>
-    <thead><tr><th>File</th><th class="g"></th><th style="text-align:right">P(AI)</th><th style="text-align:right">Verdict</th></tr></thead>
-    <tbody id="brows"></tbody>
-  </table>
-</div>
+  <details>
+    <summary>Inference endpoint</summary>
+    <p class="sub">Point the page at a different server. Blank uses the origin it was served from.</p>
+    <div class="inner">
+      <input id="api" placeholder="https://your-host  (blank = same origin)" aria-label="Inference endpoint URL">
+    </div>
+  </details>
 
-<div class="panel cfg">
-  <h2>Inference endpoint</h2>
-  <input id="api" placeholder="https://your-space.hf.space  (blank = same origin)" aria-label="Inference endpoint URL">
-  <p class="note" id="health"></p>
-</div>
-
-<footer>TikTok TechJam 2026 &middot; Problem Statement 5 &mdash; verdict + calibrated P(AI). Score is threshold-free; the label uses a threshold fit on held-out generators.</footer>
+  <footer>
+    TikTok TechJam 2026 · Problem Statement 5. The reported score is threshold-free ROC-AUC;
+    the label uses an operating threshold fitted on generators held out of training.
+    Detectors trained with cross-entropy are decisive by design, so most confident images
+    read as “decisive” — the ranking is the meaningful output, not the raw percentage.
+  </footer>
 </div>
 
 <script>
@@ -196,23 +267,24 @@ const $ = (id) => document.getElementById(id);
 const drop = $("drop"), fileInput = $("file"), api = $("api");
 let currentFile = null;
 
-try { api.value = localStorage.getItem("apiBase") || ""; } catch (e) { /* private mode */ }
+try { api.value = localStorage.getItem("apiBase") || ""; } catch (e) {}
 api.addEventListener("change", () => {
   try { localStorage.setItem("apiBase", api.value.trim()); } catch (e) {}
   checkHealth();
 });
 
 const base = () => api.value.trim().replace(/\/$/, "");
-const setError = (msg) => { $("err").textContent = msg || ""; };
+const setError = (m) => { $("err").textContent = m || ""; };
+const pct = (v) => (v * 100).toFixed(1) + "%";
 
 async function checkHealth() {
   try {
     const r = await fetch(base() + "/health");
     const d = await r.json();
-    $("health").textContent = d.ok
-      ? `${d.model_type} · ${(d.parameters / 1e6).toFixed(1)}M params · ${d.device} · threshold ${d.threshold}`
+    $("health").innerHTML = d.ok
+      ? '<span class="live">●</span> ' + (d.parameters / 1e6).toFixed(1) + "M params · " + d.device + " · threshold " + d.threshold
       : d.error;
-  } catch { $("health").textContent = "Endpoint unreachable — set the URL above."; }
+  } catch { $("health").textContent = "endpoint unreachable"; }
 }
 
 drop.addEventListener("click", () => fileInput.click());
@@ -235,141 +307,197 @@ function handle(file) {
   $("preview").hidden = false;
   $("dropText").hidden = true;
   drop.classList.add("has");
-  $("robustPanel").hidden = true;
+  $("gauntlet").hidden = true;
+  $("families").innerHTML = "";
   predict();
 }
 
 function render(d) {
-  const p = d.p_ai, thr = d.threshold;
-  const isAI = d.verdict === "AI-generated";
-
+  const p = d.p_ai, thr = d.threshold, isAI = d.verdict === "AI-generated";
   const call = $("call");
   call.textContent = isAI ? "AI-generated" : "Authentic";
   call.className = "call " + (isAI ? "ai" : "real");
 
-  // The detector is decisive by design (BCE-trained logits are large), so the
-  // raw probability is near 0 or 1 for clear images. Report the qualitative
-  // band the server computed from the logit magnitude, and only surface a
-  // precise percentage when the call is actually close.
   const word = { decisive: "Decisive", clear: "Clear", borderline: "Borderline" }[d.confidence] || "";
-  let line;
-  if (d.confidence === "decisive")   line = `${word} — the model finds this clearly ${isAI ? "AI-generated" : "authentic"}.`;
-  else if (d.confidence === "clear") line = `${word} — ${isAI ? "AI-generated" : "authentic"}, P(AI) ${(p * 100).toFixed(0)}%.`;
-  else                               line = `${word} — P(AI) ${(p * 100).toFixed(0)}%, close to the ${(thr * 100).toFixed(0)}% decision line.`;
-  $("conf").textContent = line;
+  $("conf").textContent =
+    d.confidence === "decisive" ? word + " — the model finds this clearly " + (isAI ? "AI-generated" : "authentic") + "."
+    : d.confidence === "clear"  ? word + " — " + (isAI ? "AI-generated" : "authentic") + ", P(AI) " + (p * 100).toFixed(0) + "%."
+    : word + " — P(AI) " + (p * 100).toFixed(0) + "%, close to the " + (thr * 100).toFixed(0) + "% decision line.";
 
   $("bar").style.left = (p * 100) + "%";
-  const tm = $("thrMark");
-  tm.style.left = (thr * 100) + "%";
-  tm.hidden = false;
-  $("probTxt").textContent = `P(AI) ${(p * 100).toFixed(1)}%`;
+  const tm = $("thrMark"); tm.style.left = (thr * 100) + "%"; tm.hidden = false;
+  $("probTxt").textContent = "P(AI) " + pct(p);
 }
 
 async function predict() {
-  $("call").textContent = ""; $("call").className = "call";
+  $("call").textContent = "Reading"; $("call").className = "call";
   $("conf").innerHTML = '<span class="spin"></span>';
-  $("meta").textContent = "";
-  $("robustBtn").disabled = true;
-  const body = new FormData();
-  body.append("file", currentFile);
+  $("meta").textContent = ""; $("robustBtn").disabled = true;
+  const body = new FormData(); body.append("file", currentFile);
   try {
     const r = await fetch(base() + "/predict", { method: "POST", body });
     if (!r.ok) throw new Error(((await r.json().catch(() => ({}))).detail) || r.statusText);
     const d = await r.json();
     render(d);
-    $("meta").textContent = `${d.width}×${d.height} · logit ${d.logit.toFixed(1)} · flagged AI when P(AI) ≥ ${d.threshold}`;
+    $("meta").textContent = d.width + "×" + d.height + " · logit " + d.logit.toFixed(2) +
+      " · flagged when P(AI) ≥ " + d.threshold;
     $("robustBtn").disabled = false;
   } catch (e) {
-    $("conf").textContent = "";
-    $("call").textContent = "—"; $("call").className = "call";
+    $("conf").textContent = ""; $("call").textContent = "—"; $("call").className = "call";
     setError(String(e.message || e));
   }
 }
 
+/* ---------- the gauntlet ---------- */
+const FAMILY_LABEL = {
+  clean: "as supplied", jpeg: "JPEG re-encoding", blur: "defocus & smoothing",
+  resize: "thumbnailing", noise: "sensor noise", color_jitter: "colour grading",
+  center_crop: "reframing"
+};
+
 $("robustBtn").addEventListener("click", async () => {
-  const btn = $("robustBtn");
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spin"></span> scoring 15 conditions…';
-  const body = new FormData();
-  body.append("file", currentFile);
+  const btn = $("robustBtn"), g = $("gauntlet"), fams = $("families");
+  btn.disabled = true; btn.textContent = "Degrading and re-scoring…";
+  g.hidden = false; fams.innerHTML = "";
+  $("verdictLine").textContent = ""; $("spreadNote").textContent = "";
+
+  const skel = document.createElement("div");
+  skel.className = "frames";
+  for (let i = 0; i < 7; i++) {
+    const s = document.createElement("div"); s.className = "skeleton"; skel.appendChild(s);
+  }
+  fams.appendChild(skel);
+  g.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  const body = new FormData(); body.append("file", currentFile);
   try {
     const r = await fetch(base() + "/predict/robust", { method: "POST", body });
     if (!r.ok) throw new Error(((await r.json().catch(() => ({}))).detail) || r.statusText);
     const d = await r.json();
-    $("robustRows").innerHTML = d.conditions.map((c) => {
-      const pct = (c.p_ai * 100).toFixed(1);
-      const col = c.p_ai >= d.threshold ? "var(--ai)" : "var(--real-ok)";
-      const v = c.p_ai >= d.threshold ? "AI" : "real";
-      return `<tr><td>${c.condition}</td>
-        <td class="g"><div class="mini"><i style="width:${pct}%;background:${col}"></i></div></td>
-        <td class="n">${pct}%</td>
-        <td class="n" style="color:${col};width:3rem">${v}</td></tr>`;
-    }).join("");
+    fams.innerHTML = "";
+
+    const thr = d.threshold;
+    const baseAI = d.p_ai_clean >= thr;
+
+    const order = [], groups = {};
+    d.conditions.forEach((c) => {
+      if (!groups[c.group]) { groups[c.group] = []; order.push(c.group); }
+      groups[c.group].push(c);
+    });
+
+    let held = 0, n = 0, idx = 0;
+    order.forEach((fam) => {
+      const sec = document.createElement("div"); sec.className = "family";
+      const h = document.createElement("h3"); h.textContent = FAMILY_LABEL[fam] || fam;
+      sec.appendChild(h);
+      const strip = document.createElement("div"); strip.className = "frames";
+
+      groups[fam].forEach((c) => {
+        const isAI = c.p_ai >= thr;
+        const isBase = c.condition === "clean";
+        if (!isBase) { n++; if (isAI === baseAI) held++; }
+
+        const el = document.createElement("div");
+        el.className = "frame " + (isBase ? "base " : "") + (isAI ? "ai" : "real");
+        el.style.animationDelay = (idx++ * 34) + "ms";
+
+        if (c.thumb) {
+          const im = document.createElement("img");
+          im.src = c.thumb; im.alt = "Your image under " + c.condition; im.loading = "lazy";
+          el.appendChild(im);
+        }
+
+        const lab = document.createElement("div");
+        lab.className = "lab"; lab.textContent = isBase ? "unmodified" : c.condition;
+        el.appendChild(lab);
+
+        const row = document.createElement("div"); row.className = "row";
+        const pv = document.createElement("span"); pv.className = "p"; pv.textContent = pct(c.p_ai);
+        const pip = document.createElement("span"); pip.className = "pip";
+        pip.title = isAI ? "called AI-generated" : "called authentic";
+        row.appendChild(pv); row.appendChild(pip);
+        el.appendChild(row);
+        strip.appendChild(el);
+      });
+      sec.appendChild(strip); fams.appendChild(sec);
+    });
+
+    const word = baseAI ? "AI-generated" : "authentic";
+    const broke = n - held;
+    $("verdictLine").innerHTML = broke === 0
+      ? 'verdict held <b>' + held + "/" + n + "</b> — " + word + " throughout"
+      : 'verdict held <b class="broke">' + held + "/" + n + "</b> — flipped on " + broke;
     $("spreadNote").textContent =
-      `Spread across the 14 degraded conditions: ${(d.spread * 100).toFixed(1)} percentage points. `
-      + `Smaller is better — it means the verdict does not depend on how the image was compressed or resized on its way here.`;
-    $("robustPanel").hidden = false;
+      "Spread across the transformed conditions: " + pct(d.spread) + ". " +
+      (broke === 0
+        ? "Every degraded copy was still called " + word + "."
+        : broke + " condition" + (broke > 1 ? "s" : "") + " crossed the decision line — the honest failure mode for a single image; the reported score is an average over thousands.");
   } catch (e) {
+    fams.innerHTML = ""; $("verdictLine").textContent = "";
     setError(String(e.message || e));
+    g.hidden = true;
+  } finally {
+    btn.disabled = false; btn.textContent = "Run the gauntlet — 15 conditions";
   }
-  btn.disabled = false;
-  btn.textContent = "Test robustness · 15 conditions";
 });
 
-// ---- batch ----
+/* ---------- batch ---------- */
 const bdrop = $("bdrop"), bfile = $("bfile"), bdir = $("bdir");
 let batchRows = [];
-
 $("bpick").addEventListener("click", () => bfile.click());
 $("bpickdir").addEventListener("click", () => bdir.click());
 bdrop.addEventListener("click", () => bfile.click());
-bdrop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); bfile.click(); } });
+bdrop.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); bfile.click(); }
+});
 bdrop.addEventListener("dragover", (e) => { e.preventDefault(); bdrop.classList.add("over"); });
 bdrop.addEventListener("dragleave", () => bdrop.classList.remove("over"));
-bdrop.addEventListener("drop", (e) => { e.preventDefault(); bdrop.classList.remove("over"); runBatch(e.dataTransfer.files); });
-bfile.addEventListener("change", () => runBatch(bfile.files));
-bdir.addEventListener("change", () => runBatch(bdir.files));
+bdrop.addEventListener("drop", (e) => {
+  e.preventDefault(); bdrop.classList.remove("over"); scoreMany(e.dataTransfer.files);
+});
+bfile.addEventListener("change", () => scoreMany(bfile.files));
+bdir.addEventListener("change", () => scoreMany(bdir.files));
 
-async function runBatch(fileList) {
-  const files = [...fileList].filter((f) => f.type.startsWith("image/"));
-  $("berr").textContent = "";
-  if (!files.length) { $("berr").textContent = "No image files selected."; return; }
-  if (files.length > 200) { $("berr").textContent = `Too many (${files.length}). Cap is 200 per batch.`; return; }
-  $("bsummary").innerHTML = `<span class="spin"></span> scoring ${files.length} image${files.length > 1 ? "s" : ""}…`;
-  $("btable").hidden = true; $("bcsv").disabled = true;
+async function scoreMany(list) {
+  const files = Array.from(list).filter((f) => f.type.startsWith("image/")).slice(0, 200);
+  if (!files.length) { $("berr").textContent = "No images in that selection."; return; }
+  $("berr").textContent = ""; $("bsummary").innerHTML = '<span class="spin"></span>';
   const body = new FormData();
-  files.forEach((f) => body.append("files", f, f.name));
+  files.forEach((f) => body.append("files", f));
   try {
     const r = await fetch(base() + "/predict/batch", { method: "POST", body });
     if (!r.ok) throw new Error(((await r.json().catch(() => ({}))).detail) || r.statusText);
     const d = await r.json();
     batchRows = d.results;
-    $("brows").innerHTML = d.results.map((x) => {
-      const pct = (x.p_ai * 100).toFixed(1);
-      const ai = x.verdict === "AI-generated";
-      const col = ai ? "var(--ai)" : "var(--real-ok)";
-      return `<tr><td class="f" title="${x.filename}">${x.filename}</td>
-        <td class="g"><div class="mini"><i style="width:${pct}%;background:${col}"></i></div></td>
-        <td class="n">${pct}%</td>
-        <td class="v ${ai ? "ai" : "real"}">${ai ? "AI" : "real"}</td></tr>`;
-    }).join("");
+    const tb = $("brows"); tb.innerHTML = "";
+    d.results.forEach((row) => {
+      const isAI = row.verdict === "AI-generated";
+      const tr = document.createElement("tr");
+      const td1 = document.createElement("td"); td1.textContent = row.filename;
+      const td2 = document.createElement("td"); td2.className = "n"; td2.textContent = pct(row.p_ai);
+      const td3 = document.createElement("td");
+      td3.className = "n " + (isAI ? "ai" : "real"); td3.textContent = row.verdict;
+      tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+      tb.appendChild(tr);
+    });
     $("btable").hidden = false;
     $("bsummary").textContent =
-      `${d.count} scored · ${d.n_ai} AI-generated, ${d.n_authentic} authentic`
-      + (d.errors.length ? ` · ${d.errors.length} unreadable` : "");
+      d.count + " scored · " + d.n_ai + " AI-generated · " + d.n_authentic + " authentic" +
+      (d.errors.length ? " · " + d.errors.length + " skipped" : "");
     $("bcsv").disabled = false;
   } catch (e) {
-    $("bsummary").textContent = "";
-    $("berr").textContent = String(e.message || e);
+    $("bsummary").textContent = ""; $("berr").textContent = String(e.message || e);
   }
 }
 
 $("bcsv").addEventListener("click", () => {
-  const csv = "filename,probability_ai,verdict,width,height\n"
-    + batchRows.map((x) => `${JSON.stringify(x.filename)},${x.p_ai.toFixed(6)},${x.verdict},${x.width},${x.height}`).join("\n");
+  const lines = ["filename,probability_ai,verdict"];
+  batchRows.forEach((r) => {
+    lines.push('"' + r.filename.replace(/"/g, '""') + '",' + r.p_ai.toFixed(6) + "," + r.verdict);
+  });
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "predictions.csv"; a.click();
+  a.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
+  a.download = "predictions.csv"; a.click(); URL.revokeObjectURL(a.href);
 });
 
 checkHealth();

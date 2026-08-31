@@ -25,6 +25,7 @@ Run locally:
 
 from __future__ import annotations
 
+import base64
 import io
 import math
 import os
@@ -94,6 +95,20 @@ def _read_image(raw: bytes) -> Image.Image:
             return handle.convert("RGB").copy()
     except (UnidentifiedImageError, OSError) as exc:
         raise HTTPException(status_code=400, detail=f"Not a readable image: {exc}") from exc
+
+
+def _thumb(image: Image.Image, side: int = 168) -> str:
+    """A small JPEG data URI of one degraded frame.
+
+    /predict/robust already builds every degraded image in order to score it,
+    then throws the pixels away. Returning them is what lets the page show the
+    image visibly surviving the transform rather than asserting it in a table.
+    """
+    im = image.copy()
+    im.thumbnail((side, side), Image.LANCZOS)
+    buf = io.BytesIO()
+    im.convert("RGB").save(buf, format="JPEG", quality=72, optimize=True)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 # Temperature for the reported probability. The detector's raw logits are
@@ -229,6 +244,7 @@ async def predict_robust(file: UploadFile = File(...)) -> JSONResponse:
                 "condition": condition,
                 "group": CONDITION_GROUPS.get(condition, "clean"),
                 "p_ai": _score(degraded, "clean"),
+                "thumb": _thumb(degraded),
             }
         )
 

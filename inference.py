@@ -89,7 +89,7 @@ def main(argv: list[str]) -> int:
         output_json=output_json,
         device="auto",
     )
-    n_ai = sum(1 for r in records if r["pred"] == 1)
+    n_ai = sum(1 for r in records if r["label"] == 1)
     print(
         f"[inference] {len(records)} images -> {output_json}  "
         f"({n_ai} AI-generated, {len(records) - n_ai} authentic)"

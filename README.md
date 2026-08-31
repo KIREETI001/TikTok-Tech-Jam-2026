@@ -18,7 +18,7 @@ compression, blur, resizing and noise every image picks up in circulation.
 | **Error-analysis note** | [`docs/ERROR_ANALYSIS.md`](docs/ERROR_ANALYSIS.md) + FP/FN montages [below](#error-analysis) |
 | **Reproducibility** | every number here comes from the committed `config.yaml` + `scripts/build_corpus.py` — nothing lives outside this repo |
 
-`pred = 1` → AI-generated · `pred = 0` → authentic.
+`pred` is the likelihood the image is AI-generated (0 → authentic, 1 → AI-generated).
 
 ---
 
@@ -266,13 +266,17 @@ Both entry points write the same two files:
 
 ```jsonc
 // predictions.json
-[{"image_path": "...", "pred": 0|1, "probability_ai": 0.9993}]
+[{"image_path": "...", "pred": 0.9993, "label": 1}]
 ```
 
-`pred` is the 0/1 label; **`probability_ai` is the continuous score** — the
-scored metric is threshold-free ROC-AUC, so the probability is included in
-the JSON itself rather than only in the sidecar. `predictions.scores.csv`
-carries `probability_ai` and `confidence` for spreadsheet use.
+Matching the brief: *"a confidence score for each image, indicating the
+likelihood that it is AIGC-generated ... a JSON file containing `image_path`
+and `pred`"*. **`pred` is that likelihood — a float in [0, 1], not a rounded
+label.** This matters for scoring: ROC-AUC computed over 0/1 predictions
+collapses into a step function and understates any model. `label` carries the
+thresholded call for consumers that want a decision rather than a score, and
+`predictions.scores.csv` repeats the probability alongside `confidence` for
+spreadsheet use.
 
 > `checkpoints/detector.pt` is ~87 MB and **not in git** (large binary).
 > `inference.py` fetches it automatically from the
@@ -400,6 +404,67 @@ point, not the model.
 - This is a hackathon prototype, not a production moderation system.
 
 ---
+
+## What we would improve given more time
+
+Ranked by what we believe would actually move the number, based on where the
+measurements point rather than on what sounds impressive.
+
+1. **Train on pixel-space diffusion properly.** Adding 5,000 GenImage
+   ADM/GLIDE images moved ADM from 0.478 to 0.937 — the single largest gain in
+   the project, from the smallest slice of the corpus. That curve had not
+   flattened when we ran out of time. More pixel-diffusion families, and more
+   of each, is the most clearly-indicated next step.
+2. **Attack the two weakest conditions directly.** JPEG q30 and noise σ0.10
+   both sit at 0.830 while everything else is above 0.87. Curriculum
+   augmentation weighted toward severe compression and additive noise targets
+   exactly that gap instead of raising the average uniformly.
+3. **A second opinion for the borderline band.** The model is decisive on most
+   images; the errors concentrate near the decision line. A cheap second stage
+   invoked only for the ~10% of images in that band would cost little average
+   latency and is where the remaining false positives live.
+4. **Test-time augmentation.** Averaging predictions over a few crops is a
+   known robustness gain we measured as unhelpful on 32×32 data early on, and
+   never re-tested after moving to native-resolution training — where the
+   original objection no longer applies.
+5. **Flow and DiT generators.** SD3, Flux and Firefly are the frontier where
+   every open detector still collapses, and none appear in our evaluation. We
+   would rather state that plainly than quietly omit it.
+
+We would also replace the dHash contamination check described below with a
+proper perceptual-hash sweep, and re-run the SID_Set evaluation split by
+`full_synthetic` versus `tampered` so that number stops conflating two tasks.
+
+## Evaluation hygiene
+
+The brief specifies that COCO val2017 and DALL·E Advanced must not be used in
+training. None of our four training sources draws from them, and we checked
+rather than assumed: a difference-hash comparison of all **26,361 training
+reals** against the **1,000 COCO images** in our evaluation set found no
+genuine duplicate. Thirteen apparent collisions all mapped to a single
+near-uniform eval image (pixel std 12.3) whose hash is degenerate; direct
+comparison put those pairs 45/255 apart in mean absolute pixel difference —
+different photographs.
+
+Separately, `detector/data.py:assert_not_eval_only` hard-fails if a path
+marked `eval_only_*` reaches training or calibration, so the guarantee is
+enforced in code and not only by convention.
+
+## Team contributions
+
+- **Kireeti** — evaluation harness and the resolution-shortcut discovery,
+  corpus design and build pipeline (`scripts/build_corpus.py`), the
+  native-crop + SAFE training recipe, iteration 5a/5b/6a/6b and the ablations
+  behind them, `inference.py`, the web demo, and this documentation.
+- **Ziyang** — the iteration-1 to iteration-4 line that established the
+  Community-Forensics-Small corpus and the iter4 baseline, the shortcut probe
+  and matched-evaluation builder this project's evaluation is descended from,
+  the frozen CLIP-B branch tested as iteration 6b, and the webapp's original
+  batch-scoring and robustness endpoints.
+
+*(Replace or extend these lines with the split your team agrees on — they are
+recorded here from the commit history, which is the only record this
+repository has.)*
 
 ## License
 

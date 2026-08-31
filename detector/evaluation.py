@@ -520,14 +520,16 @@ def predict_folder(
             for path, probability in zip(paths, probabilities, strict=True):
                 score = float(probability)
                 pred = int(score >= cutoff)
-                # Both keys, deliberately. "pred" is the 0/1 label the
-                # deliverable format asks for; "probability_ai" is the
-                # continuous score the scored metric (ROC-AUC) actually needs.
-                # Emitting only the label would collapse any AUC computed from
-                # this file into a step function -- a real risk if whoever
-                # scores it reads predictions.json rather than the sidecar CSV.
+                # The brief asks for "a confidence score for each image,
+                # indicating the likelihood that it is AIGC-generated ... a
+                # JSON file containing image_path and pred", so "pred" is the
+                # continuous probability, not a rounded label. That is also
+                # what the scored metric needs: ROC-AUC over 0/1 predictions
+                # collapses into a step function and understates the model.
+                # "label" carries the thresholded call for any consumer that
+                # wants a decision rather than a score.
                 strict_records.append(
-                    {"image_path": str(path), "pred": pred, "probability_ai": score}
+                    {"image_path": str(path), "pred": score, "label": pred}
                 )
                 score_rows.append(
                     {

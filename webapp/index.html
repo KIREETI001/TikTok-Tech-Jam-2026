@@ -157,6 +157,9 @@ button.primary:hover:not(:disabled){background:#63BECD;border-color:#63BECD}
 .bcard.real{border-color:rgba(79,168,184,.45)}
 .bcard img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:var(--r-in);
   display:block;background:var(--sheet-2)}
+.bcard .ph{width:100%;aspect-ratio:1;border-radius:var(--r-in);background:var(--sheet-2);
+  display:grid;place-items:center;font-family:'IBM Plex Mono',monospace;
+  font-size:10px;color:var(--dim)}
 .bcard .fn{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--dim);
   margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bcard .row{display:flex;align-items:center;justify-content:space-between;
@@ -502,8 +505,17 @@ async function scoreMany(list) {
     // 200 un-revoked object URLs is a real leak.
     batchUrls.forEach(URL.revokeObjectURL);
     batchUrls = [];
+    // A folder upload sends the relative path ("AI Images/IMG_7450.WEBP") as
+    // the filename, while File.name is only the basename -- so index both, or
+    // every lookup misses and the cards render empty.
     const byName = new Map();
-    files.forEach((f) => { if (!byName.has(f.name)) byName.set(f.name, f); });
+    files.forEach((f) => {
+      const rel = f.webkitRelativePath || f.name;
+      if (!byName.has(rel)) byName.set(rel, f);
+      if (!byName.has(f.name)) byName.set(f.name, f);
+    });
+    const lookup = (name) =>
+      byName.get(name) || byName.get(name.split("/").pop());
 
     const grid = $("bgrid"); grid.innerHTML = "";
     d.results.forEach((row, i) => {
@@ -512,15 +524,31 @@ async function scoreMany(list) {
       card.className = "bcard " + (isAI ? "ai" : "real");
       card.style.animationDelay = Math.min(i, 40) * 18 + "ms";
 
-      const src = byName.get(row.filename);
-      const im = document.createElement("img");
-      im.alt = row.filename;
-      im.loading = "lazy";
-      if (src) { const u = URL.createObjectURL(src); batchUrls.push(u); im.src = u; }
-      card.appendChild(im);
+      const shortName = row.filename.split("/").pop();
+      const src = lookup(row.filename);
+      if (src) {
+        const im = document.createElement("img");
+        im.alt = shortName;
+        im.loading = "lazy";
+        const u = URL.createObjectURL(src);
+        batchUrls.push(u);
+        im.src = u;
+        // A file the browser cannot decode would otherwise leave a broken
+        // icon sitting where the picture should be.
+        im.addEventListener("error", () => {
+          const ph = document.createElement("div");
+          ph.className = "ph"; ph.textContent = "no preview";
+          im.replaceWith(ph);
+        });
+        card.appendChild(im);
+      } else {
+        const ph = document.createElement("div");
+        ph.className = "ph"; ph.textContent = "no preview";
+        card.appendChild(ph);
+      }
 
       const fn = document.createElement("div");
-      fn.className = "fn"; fn.textContent = row.filename; fn.title = row.filename;
+      fn.className = "fn"; fn.textContent = shortName; fn.title = row.filename;
       card.appendChild(fn);
 
       const r = document.createElement("div"); r.className = "row";

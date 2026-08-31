@@ -4,11 +4,11 @@
     python inference.py <image_folder> <output.json>
 
 Deliberately the dumbest possible interface. `pipeline.py predict` needs a
-subcommand and an `--input` flag, and `run.sh` opens an interactive menu that
-blocks on stdin -- neither survives being run hands-off by a grading script,
-a CI job, or a judge who does not read the README first. This takes a bare
-positional path, prompts for nothing, downloads the weights itself if they
-are missing, and exits non-zero with a readable message on failure.
+subcommand and an `--input` flag, which does not survive being run hands-off
+by a grading script, a CI job, or a judge who has not read the README. This
+takes a bare positional path, prompts for nothing, downloads the weights
+itself if they are missing, and exits non-zero with a readable message on
+failure.
 
 Everything it does is delegated to detector.evaluation.predict_folder, so the
 numbers are identical to `pipeline.py predict` -- this is an adapter, not a

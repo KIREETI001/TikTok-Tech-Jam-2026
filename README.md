@@ -12,7 +12,7 @@ compression, blur, resizing and noise every image picks up in circulation.
 | | |
 |---|---|
 | **Live demo** | run `serve_demo.ps1` → a public `https://<...>.trycloudflare.com` URL (see [Try it](#try-it-2-minutes)) |
-| **Model weights** | [**`v1.0-iter6a` release**](https://github.com/KIREETI001/TikTok-Tech-Jam-2026/releases/tag/v1.0-iter6a) — 21.7M params, 87 MB, Apache-2.0 (`run.bat` / `run.sh` fetches it for you) |
+| **Model weights** | [**`v1.0-iter6a` release**](https://github.com/KIREETI001/TikTok-Tech-Jam-2026/releases/tag/v1.0-iter6a) — 21.7M params, 87 MB, Apache-2.0 (`inference.py` fetches it automatically) |
 | **Demo video** | *(link in the Devpost submission)* |
 | **Robustness table** | [below](#robustness-the-15-condition-matrix) · full: [`docs/ERROR_ANALYSIS.md`](docs/ERROR_ANALYSIS.md) |
 | **Error-analysis note** | [`docs/ERROR_ANALYSIS.md`](docs/ERROR_ANALYSIS.md) + FP/FN montages [below](#error-analysis) |
@@ -222,7 +222,7 @@ are named honestly in [Limitations](#limitations).
 | Augmentation scripts included | [`detector/transforms.py`](detector/transforms.py), [`scripts/build_iter6_corpus.py`](scripts/build_iter6_corpus.py) |
 | No "directly replicate an existing model" | a public backbone plus an original preprocessing + corpus design, with three documented negative results establishing why the simple architecture is the right one |
 | Winning teams open-source everything | pipeline, hyperparameters (`config.yaml`), corpus builder, eval code, and weights are **all in this repo or its release** — `config.yaml` as committed reproduces the shipped checkpoint, with nothing held back locally |
-| Submission: repo + run script + Devpost + demo video | this repo, `run.bat` / `run.sh`, Devpost, YouTube |
+| Submission: repo + run script + Devpost + demo video | this repo, `inference.py`, Devpost, YouTube |
 
 **Scope** (slide 17): image-level binary detection only — no video/audio, no
 production deployment, no localisation. Consistent with this project.
@@ -242,11 +242,6 @@ python inference.py <folder_of_images>    # → predictions.json
 That is the whole thing. `python inference.py demo_images` scores the six
 bundled samples and should return **6/6 correct** on CPU in about ten seconds.
 
-**Guided menu.** Double-click **`run.bat`** (Windows) or run **`bash run.sh`**
-(Linux/macOS) for an interactive version: setup · weights · smoke test ·
-predict a folder · web demo · **evaluate on the WildFake benchmark**
-(streamed — no dataset download) · train.
-
 Or do it by hand:
 
 **1 — set up the environment** (Python 3.10–3.12):
@@ -255,7 +250,6 @@ Or do it by hand:
 python -m venv .venv
 # Windows:  .venv\Scripts\activate      Linux/macOS:  source .venv/bin/activate
 pip install -r requirements-cuda.txt          # NVIDIA / CPU
-# or, on the Intel Arc box it was built on:  pip install -r requirements-xpu.txt
 ```
 
 **2 — predict a folder of images** (the required deliverable format):
@@ -281,7 +275,7 @@ the JSON itself rather than only in the sidecar. `predictions.scores.csv`
 carries `probability_ai` and `confidence` for spreadsheet use.
 
 > `runs/iter6/best.pt` is ~87 MB and **not in git** (large binary). Both
-> `inference.py` and the menu fetch it automatically from the
+> `inference.py` fetches it automatically from the
 > [`v1.0-iter6a` release](https://github.com/KIREETI001/TikTok-Tech-Jam-2026/releases/tag/v1.0-iter6a);
 > the direct link is in that release if you would rather download it by hand.
 
@@ -315,46 +309,49 @@ python pipeline.py smoke --device auto
 
 ## Reproduce the training
 
-```bash
-export TTJ_DATA=/path/to/materialised/data          # see below
-export PYTHON=python  DEVICE=auto
+Three steps, all from this repo — nothing is archived elsewhere.
 
-bash run_iteration.sh iter4      # train the ViT baseline → calibrate → evaluate
+```bash
+# 1. build the corpus (streams from HuggingFace; ~66.5k images on disk)
+python scripts/build_iter5_corpus.py      # SID_Set + DRAGON-17 + GenImage ADM/GLIDE
+python scripts/build_iter6_corpus.py      # + Community-Forensics-Small
+
+# 2. train (10 epochs, ~3.5 h on an RTX 3050)
+python pipeline.py train --config config.yaml
+
+# 3. score every held-out set + regenerate the tables and montages
+bash finalize_local.sh runs/iter6/best.pt iter6
 ```
 
-`run_iteration.sh` reads [`config.yaml`](config.yaml), trains
-[`detector/`](detector/), calibrates the threshold on **withheld generators**
-(never the test set — 5-way split: `train / val / genval / calval / holdout`),
-and evaluates every held-out set. The CLIP fusion head (iteration 7, the
-shipped model) is trained on top with scripts archived alongside the
-maintainer's notes.
+`config.yaml` as committed is the exact configuration that produced the
+shipped checkpoint — `crop_from_native: true`, `safe_augment: true`,
+`samples_per_epoch: 24000`. Step 2 reads it, trains [`detector/`](detector/),
+and calibrates the threshold on **withheld generators**, never the test set.
 
-**Data** — all public: `nebula/SID_Set` (drop the `tampered` class — localised
-editing, out of scope), `lesc-unifi/dragon` (17 generators in training, 8
-held out), `OwensLab/CommunityForensics-Small` (latent-diffusion + GAN +
-LAION/ImageNet/CelebA/COCO reals), all perceptual-hash deduplicated against
-the eval set. `python pipeline.py materialize-sid-set --help` and
-`scripts/build_matched_eval.py` build the pieces.
+**Data** — all public: `saberzl/SID_Set` (the `tampered` class is dropped —
+localised editing, out of scope), `lesc-unifi/dragon` (17 generators in
+training, 8 held out), `OwensLab/CommunityForensics-Small` (latent-diffusion +
+GAN + pixel-diffusion, with LAION/ImageNet/CelebA/COCO reals), and
+`bitmind/GenImage_ADM` + `bitmind/GenImage_glide`.
+[`scripts/build_matched_eval_local.py`](scripts/build_matched_eval_local.py)
+builds the resolution-matched evaluation set.
 
 ---
 
 ## Repository layout
 
 ```
-run.bat / run.sh     guided menu: setup · weights · smoke · predict · demo · benchmark · train
-detector/            model · data · transforms · training · evaluation · calibration
-pipeline.py          ingest · train · evaluate · predict · smoke · materialize-sid-set
-config.yaml           training knobs
-run_iteration.sh      one loop: train → calibrate on held-out generators → evaluate
-run_fast.sh           lean variant (organiser + DRAGON only)
-finalize.sh           full 15-condition eval + FP/FN montages for a finished checkpoint
-scripts/              eval-only tooling (WildFake stream-eval, shortcut probe, matched-set builder)
-webapp/               local FastAPI demo — single · robustness · batch
-space/                Hugging Face Docker Space packaging (space/deploy.sh)
+inference.py          THE entry point: python inference.py <folder> → predictions.json
+pipeline.py           ingest · train · evaluate · predict · smoke · materialize-sid-set
+config.yaml           the exact training configuration behind the shipped checkpoint
+detector/             model · data · transforms · training · evaluation · calibration
+scripts/              corpus builders, matched-set builder, shortcut probe, stream-eval
+webapp/               FastAPI demo — single · 15-condition robustness · batch
 serve_demo.ps1        one command → a public Cloudflare-tunnel URL
-hf_upload/            push the checkpoint to a HF model repo
-docs/                 error-analysis note + FP/FN montages
-requirements-*.txt    cuda (portable), xpu (the dev box)
+finalize_local.sh     full 15-condition eval + FP/FN montages for a checkpoint
+docs/                 error-analysis note, FP/FN montages, full experiment log
+demo_images/          six labelled samples (4 AI, 2 authentic) to try it on
+requirements*.txt     cuda / cpu
 ```
 
 Env vars the scripts honour: `PYTHON`, `TTJ_DATA`, `DEVICE`, `HF_HOME`,

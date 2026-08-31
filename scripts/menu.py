@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import sys
+import urllib.request
 import venv
 from pathlib import Path
 
@@ -23,7 +24,14 @@ except Exception:
 
 ROOT = Path(__file__).resolve().parent.parent
 VENV = ROOT / ".venv"
-CKPT = ROOT / "runs" / "iter7" / "best.pt"
+CKPT = ROOT / "runs" / "iter6" / "best.pt"
+# Published weights. The GitHub release is the primary source: it needs
+# nothing but the standard library, so it works on a fresh clone before
+# `pip install` has run. HuggingFace stays available as a fallback.
+GH_RELEASE_URL = (
+    "https://github.com/KIREETI001/TikTok-Tech-Jam-2026/releases/download/"
+    "v1.0-iter6a/best.pt"
+)
 HF_REPO_DEFAULT = "kireeti26/ttj-aigc-detector"
 
 
@@ -139,6 +147,20 @@ def get_weights() -> None:
         print(f"Already present: {CKPT}  ({mb:.0f} MB)")
         if _ask("re-download anyway? y/N", "N").lower() != "y":
             return
+    CKPT.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Fetching ~87 MB from the GitHub release ...")
+    try:
+        with urllib.request.urlopen(GH_RELEASE_URL) as response, CKPT.open("wb") as out:
+            shutil.copyfileobj(response, out)
+    except Exception as exc:  # noqa: BLE001 - any failure falls through to HF
+        # Never leave a truncated checkpoint behind: torch.load on a partial
+        # file fails with a confusing unpickling error rather than "no weights".
+        CKPT.unlink(missing_ok=True)
+        print(f"  GitHub release unavailable ({exc}); trying HuggingFace.")
+    else:
+        print(f"saved -> {CKPT}  ({CKPT.stat().st_size / 1e6:.0f} MB)")
+        return
+
     repo = _ask("HuggingFace model repo", HF_REPO_DEFAULT)
     code = (
         "from huggingface_hub import hf_hub_download; import shutil, pathlib; "
@@ -148,9 +170,9 @@ def get_weights() -> None:
     )
     if _run([_py(), "-c", code]) != 0:
         print(
-            f"\nCould not fetch from '{repo}'. If the weights are not published yet:\n"
-            "  1) the model owner runs:  python hf_upload/upload.py --repo <user>/<name>\n"
-            "  2) then re-run this option with that repo name."
+            f"\nCould not fetch from '{repo}' either. Direct download:\n"
+            f"  {GH_RELEASE_URL}\n"
+            f"  save it to {CKPT}"
         )
 
 

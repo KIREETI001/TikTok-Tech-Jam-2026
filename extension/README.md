@@ -3,13 +3,33 @@
 Scores images on any page using the detector from this repository. Two modes,
 and the difference between them is the whole design.
 
-**On demand.** Right-click an image → *Check this image for AI*. One question
-asked, one answer given, judged at the model's own calibrated threshold. This
-is the mode we trust.
+**On demand — the default.** Right-click an image → *Check this image for AI*.
+Nothing on the page is scored until you ask. One question, one answer, in one of
+the three bands below. Click a badge to dismiss it.
 
 **Ambient radar.** Off by default. Every image above a size threshold gets
-scored as it enters the viewport, with a badge in its corner. Useful, and the
-one to be careful with — see below.
+scored as it enters the viewport — but a badge is drawn *only* when the score
+reaches the AI band. The other two bands stay silent. A badge on every image is
+not a radar, it is wallpaper: it spends your attention on every photo to tell
+you what you already assumed about almost all of them.
+
+## The three bands
+
+| Band | Score | Badge |
+| --- | --- | --- |
+| Likely authentic | below **0.51** | solid cyan |
+| Uncertain | **0.51 – 0.90** | dashed amber |
+| Likely AI-generated | **0.90** and above | solid orange |
+
+The middle band is not decoration. Without it a 0.80 image was painted the same
+colour as a 0.07 image, which reads as *"we checked, this is fine"* when what
+the model actually said was *"probably generated, but not past the bar I will
+accuse someone over"*. Amber gets a dashed border as well as its own hue,
+because at 11px adjacent hues alone are not a reliable signal.
+
+Every badge carries the whole legend in its tooltip — it floats over somebody
+else's page, so if the bands are not explained there they are not explained
+anywhere you are looking.
 
 ## Install
 
@@ -20,7 +40,7 @@ one to be careful with — see below.
 3. Click the extension icon and paste the detector URL into **Detector URL**.
    The status line turns cyan and reports the live model when it connects.
 
-## Why two thresholds
+## Why the AI band sits so far above the threshold
 
 The model's calibrated operating point is **0.51**, chosen to balance the two
 error types. At that point its clean false-positive rate is **6.7%**.
@@ -30,10 +50,14 @@ feed: scroll past a hundred genuine photographs and roughly **seven of them get
 flagged as AI**. Those are your friends' pictures, and nobody asked. A tool that
 is wrong seven times in a scroll gets uninstalled, and deserves to be.
 
-So ambient mode holds images to a much higher bar — **0.90** by default,
-adjustable in the popup. It speaks less often and is right more often when it
-does. On-demand scans still use the calibrated threshold, because there you
-asked a direct question and deserve the model's actual opinion.
+So the AI band starts at **0.90** by default, adjustable in the popup, and that
+same number is the bar ambient mode must clear before it says anything at all.
+The rule is simply *ambient speaks only when it would say AI* — it is right far
+more often when it does speak, and silent the rest of the time.
+
+Scores between 0.51 and 0.90 are still shown for a scan you asked for, in the
+amber uncertain band. That is the honest answer: the model is leaning toward
+generated, and is not confident enough to make an accusation.
 
 ## Known limits
 
@@ -61,9 +85,19 @@ asked a direct question and deserve the model's actual opinion.
 ## How it is wired
 
 ```
-content.js   finds images, watches the viewport, draws badges in a fixed
-             overlay layer so the host page's layout is never touched
+content.js   finds images, watches the viewport, assigns each score to a band,
+             draws badges in a fixed overlay layer so the host page's layout
+             is never touched
 background.js does all networking: fetches image bytes (host permissions
-             sidestep the page's CORS), posts to /predict, caches by URL
-popup.js     detector URL, ambient toggle, thresholds, live health readout
+             sidestep the page's CORS), posts to /predict, caches by URL,
+             owns the right-click menu item
+popup.js     detector URL, ambient toggle, band boundary, live health readout
 ```
+
+## Verified in a browser
+
+`content.js` is exercised end to end under Playwright with the extension loaded
+and a live detector — 13 assertions covering: the default mode painting nothing,
+the right-click pending badge, all three bands landing on the right scores,
+tooltip legends, click-to-dismiss, ambient flagging only the AI band, a single
+overlay layer across scrolling, and a clean console.

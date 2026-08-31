@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Chain of Custody — AI image radar",
-  "version": "0.1.0",
-  "description": "Score images on the page for AI generation, using the Chain of Custody detector. Right-click any image, or switch on the ambient radar.",
+  "version": "0.2.0",
+  "description": "Right-click any image to check it for AI generation with the Chain of Custody detector. Optional ambient radar flags only high-confidence results as you scroll.",
   "permissions": ["storage", "contextMenus", "scripting"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },

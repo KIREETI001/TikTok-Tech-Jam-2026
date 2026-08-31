@@ -22,8 +22,13 @@
   white-space: nowrap;
   box-shadow: 0 1px 2px rgba(0,0,0,.35);
 }
-/* Same two signal colours as the web app: amber flags, cyan clears. */
+/* Three bands. The web app's two signal colours mark the two ends; the middle
+ * band gets its own hue AND a dashed edge, because #D9A441 and #E2703A are
+ * adjacent hues that 11px of colour alone cannot reliably separate -- the
+ * dashes carry the meaning for anyone reading shape rather than hue. Dashed
+ * also happens to say the right thing: this verdict is not settled. */
 .coc-badge.coc-ai{ color:#E2703A; border-color: rgba(226,112,58,.7); }
+.coc-badge.coc-maybe{ color:#D9A441; border-color: rgba(217,164,65,.65); border-style: dashed; }
 .coc-badge.coc-real{ color:#4FA8B8; border-color: rgba(79,168,184,.55); }
 .coc-badge.coc-pending{ color:#8A97A3; }
-.coc-badge.coc-error{ color:#8A97A3; border-style: dashed; }
+.coc-badge.coc-error{ color:#8A97A3; border-style: dotted; }

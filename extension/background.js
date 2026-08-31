@@ -83,6 +83,9 @@ chrome.runtime.onInstalled.addListener(() => {
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId !== "cocScan" || !tab?.id) return;
+  // Acknowledge immediately. Fetching the image and running the forward pass
+  // takes long enough that a silent gap reads as "the click did nothing".
+  chrome.tabs.sendMessage(tab.id, { type: "scanning", url: info.srcUrl });
   try {
     const v = await score(info.srcUrl);
     chrome.tabs.sendMessage(tab.id, { type: "result", url: info.srcUrl, ...v, ok: true, forced: true });

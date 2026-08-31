@@ -2,21 +2,35 @@
  *
  * Two modes, deliberately different in temperament:
  *
- *   on demand  right-click an image. One question asked, one answer given,
- *              reported at the model's calibrated threshold.
- *   ambient    every large image in the viewport gets scored as you scroll.
- *              Off by default, and held to a much higher bar, because this
- *              mode makes accusations nobody asked for. At 6.7% false-positive
- *              rate a hundred real photos produce about seven wrong flags --
- *              tolerable when you asked about one image, corrosive when it is
- *              happening to your friends' holiday pictures unprompted.
+ *   on demand  right-click an image -> "Check this image for AI". One question
+ *              asked, one answer given. This is the default and the mode the
+ *              extension is really for.
+ *   ambient    every large image in the viewport is scored as you scroll. Off
+ *              by default, and -- unlike the first version -- silent unless a
+ *              score lands in the top band. A badge on every image is not a
+ *              radar, it is wallpaper: it spends the reader's attention on
+ *              every photo to tell them what they already assumed about almost
+ *              all of them.
+ *
+ * Three bands, taken from the score rather than from the mode:
+ *
+ *   authentic   p_ai <  threshold             the model's own calibrated point
+ *   uncertain   threshold <= p_ai < high
+ *   AI          p_ai >= high                  (CFG.ambientThreshold, def 0.90)
+ *
+ * The middle band exists because folding it into "authentic" was actively
+ * misleading: a 0.80 image was painted the same colour as a 0.07 image, which
+ * reads as "we checked, this is fine" when what the model actually said was
+ * "probably generated, but not past the bar I will accuse someone over".
  */
 
-const STATE = new WeakMap();     // img -> {status, p_ai, verdict, badge}
+const STATE = new WeakMap();     // img -> {status, p_ai, badge}
 let CFG = { ambient: false, ambientThreshold: 0.9, minSize: 200 };
 let layer = null;
 let queued = [];
 let flushing = false;
+
+const pct = (x, d) => (x * 100).toFixed(d) + "%";
 
 function ensureLayer() {
   // isConnected, not document.body.contains -- the layer is appended to
@@ -41,6 +55,14 @@ function badgeFor(img) {
   const b = document.createElement("div");
   b.className = "coc-badge coc-pending";
   b.textContent = "…";
+  // Dismissable, because an answer you asked for should also be one you can
+  // put away -- otherwise the deliberate mode slowly accumulates the same
+  // clutter the ambient mode was just cured of.
+  b.addEventListener("click", () => {
+    b.remove();
+    const s = STATE.get(img);
+    if (s) { delete s.badge; s.status = "dismissed"; STATE.set(img, s); }
+  });
   ensureLayer().appendChild(b);
   return b;
 }
@@ -56,43 +78,68 @@ function place(img, badge) {
                                           Math.round(r.top + 8) + "px)";
 }
 
+function bandOf(p, threshold, high) {
+  if (p >= high) return { cls: "coc-ai", word: "likely AI-generated" };
+  if (p >= threshold) return { cls: "coc-maybe", word: "uncertain" };
+  return { cls: "coc-real", word: "likely authentic" };
+}
+
 function paint(img, res) {
-  const badge = badgeFor(img);
   const st = STATE.get(img) || {};
-  st.badge = badge;
+  const forced = !!res.forced;
 
   if (!res.ok) {
-    st.status = "error";
+    // Report a failure only for a scan someone actually asked for. An ambient
+    // pass that cannot reach the detector should fail quietly rather than
+    // stipple the page with dashes.
+    if (!forced) { st.status = "done"; STATE.set(img, st); return; }
+    const badge = badgeFor(img);
+    st.badge = badge; st.status = "error";
     badge.className = "coc-badge coc-error";
     badge.textContent = "—";
-    badge.title = "Chain of Custody: " + res.error;
-  } else {
-    // The bar an image must clear to be called out. On demand we use the
-    // model's own calibrated threshold; ambient uses the stricter one.
-    const bar = res.forced ? res.threshold : Math.max(res.threshold, CFG.ambientThreshold);
-    const flag = res.p_ai >= bar;
-    st.status = "done"; st.p_ai = res.p_ai;
-    badge.className = "coc-badge " + (flag ? "coc-ai" : "coc-real");
-    badge.textContent = (res.p_ai * 100).toFixed(0) + "%";
-    badge.title = "Chain of Custody — P(AI) " + (res.p_ai * 100).toFixed(1) + "%\n" +
-      (flag ? "flagged AI-generated" : "not flagged") +
-      "\nbar for this mode: " + (bar * 100).toFixed(0) + "%" +
-      (res.cached ? "\n(cached)" : "");
+    badge.title = "Chain of Custody: " + res.error + "\n\nclick to dismiss";
+    STATE.set(img, st);
+    place(img, badge);
+    return;
   }
+
+  const high = Math.max(res.threshold, CFG.ambientThreshold);
+  const band = bandOf(res.p_ai, res.threshold, high);
+
+  st.status = "done";
+  st.p_ai = res.p_ai;
+
+  // The point of the rework: ambient mode says nothing at all unless the score
+  // reaches the band it would actually call AI.
+  if (!forced && band.cls !== "coc-ai") { STATE.set(img, st); return; }
+
+  const badge = badgeFor(img);
+  st.badge = badge;
+  badge.className = "coc-badge " + band.cls;
+  badge.textContent = pct(res.p_ai, 0);
+  // Every badge carries its own legend. There is nowhere else to put one: the
+  // badge floats over somebody else's page, so if the bands are not explained
+  // here they are not explained anywhere the reader is looking.
+  badge.title =
+    "Chain of Custody — P(AI) " + pct(res.p_ai, 1) + "\n" +
+    band.word + "\n\n" +
+    "authentic   below " + pct(res.threshold, 0) + "\n" +
+    "uncertain   " + pct(res.threshold, 0) + " – " + pct(high, 0) + "\n" +
+    "AI          " + pct(high, 0) + " and above\n\n" +
+    "click to dismiss" + (res.cached ? "  ·  cached" : "");
   STATE.set(img, st);
   place(img, badge);
 }
 
 function request(img) {
   const st = STATE.get(img) || {};
-  if (st.status === "pending" || st.status === "done") return;
+  if (st.status === "pending" || st.status === "done" || st.status === "dismissed") return;
   const url = img.currentSrc || img.src;
   if (!url || url.startsWith("data:")) return;
   st.status = "pending";
-  st.badge = badgeFor(img);
   STATE.set(img, st);
-  place(img, st.badge);
-
+  // No pending badge on this path. Ambient scoring is speculative, and a "..."
+  // on every image while it resolves is exactly the noise this mode avoids.
   chrome.runtime.sendMessage({ type: "score", url }, (res) => {
     if (chrome.runtime.lastError) {
       paint(img, { ok: false, error: chrome.runtime.lastError.message });
@@ -153,12 +200,34 @@ function reposition() {
   });
 }
 
+function findByUrl(url) {
+  return [...document.querySelectorAll("img")]
+    .find((i) => (i.currentSrc || i.src) === url);
+}
+
 /* A right-click scan always paints, whatever mode we are in. */
 chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === "scanning") {
+    // The deliberate path does get a pending badge: you asked, so you are owed
+    // an acknowledgement while the fetch and the forward pass run.
+    const img = findByUrl(msg.url);
+    if (!img) return;
+    const st = STATE.get(img) || {};
+    st.status = "pending";
+    st.badge = badgeFor(img);
+    st.badge.className = "coc-badge coc-pending";
+    st.badge.textContent = "…";
+    st.badge.title = "Chain of Custody — checking…";
+    STATE.set(img, st);
+    place(img, st.badge);
+    return;
+  }
   if (msg.type !== "result") return;
-  const img = [...document.querySelectorAll("img")]
-    .find((i) => (i.currentSrc || i.src) === msg.url);
-  if (img) { STATE.set(img, { ...(STATE.get(img) || {}), status: "seen" }); paint(img, msg); }
+  const img = findByUrl(msg.url);
+  if (img) {
+    STATE.set(img, { ...(STATE.get(img) || {}), status: "seen" });
+    paint(img, msg);
+  }
 });
 
 chrome.storage.onChanged.addListener((changes) => {

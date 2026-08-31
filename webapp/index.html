@@ -138,6 +138,16 @@ button.primary:hover:not(:disabled){background:#63BECD;border-color:#63BECD}
   width:132px;height:186px;border-radius:var(--r-out);flex:0 0 auto}
 @keyframes sweep{to{background-position:-200% 0}}
 
+.legend{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;
+  padding:12px 14px;margin:0 0 20px;border:1px solid var(--edge);
+  border-radius:var(--r-in);background:var(--sheet);font-size:12.5px;color:var(--dim)}
+.legend .lg{display:flex;align-items:center;gap:7px;text-wrap:pretty}
+.legend .swatch{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.legend .swatch.ai{background:var(--halide)} .legend .swatch.real{background:var(--fixer)}
+.legend .num{font-family:'IBM Plex Mono',monospace;color:var(--print);
+  font-variant-numeric:tabular-nums;font-weight:500}
+.legend b{color:var(--print);font-weight:600}
+
 /* ---------- secondary ---------- */
 details{border-top:1px solid var(--edge);padding:20px 0}
 summary{cursor:pointer;font-weight:600;font-size:15px;list-style:none;
@@ -192,39 +202,6 @@ footer{border-top:1px solid var(--edge);padding:26px 0 46px;color:var(--dim);
     <p>Compression, resizing, a screenshot of a screenshot — by the time a picture reaches your feed it is not the file that left the generator. Most detectors quietly stop working somewhere along that path. <b>Drop an image below and watch this one survive it.</b></p>
   </section>
 
-  <section class="stage">
-    <div>
-      <div id="drop" tabindex="0" role="button" aria-label="Choose an image to analyse">
-        <div id="dropText">Drop an image here, or click to choose</div>
-        <img id="preview" alt="Selected image preview" hidden>
-      </div>
-      <div class="hint">JPEG · PNG · WebP, up to 25 MB. Scored in memory and discarded — nothing is stored.</div>
-      <input id="file" type="file" accept="image/*" hidden>
-      <div class="err" id="err" role="alert"></div>
-    </div>
-
-    <div class="verdict">
-      <div class="call" id="call">Awaiting an image</div>
-      <div class="conf" id="conf">The verdict and its confidence appear here.</div>
-      <div class="bar" id="barWrap"><i id="bar"></i><span class="thr" id="thrMark" hidden></span></div>
-      <div class="scale"><span>authentic</span><span id="probTxt">P(AI) —</span><span>AI-generated</span></div>
-      <div class="meta" id="meta"></div>
-      <div style="margin-top:18px">
-        <button id="robustBtn" class="primary" disabled>Run the gauntlet — 15 conditions</button>
-      </div>
-    </div>
-  </section>
-
-  <section class="gauntlet" id="gauntlet" hidden>
-    <div class="gsplit">
-      <h2>The same image, after the internet gets to it</h2>
-      <div id="verdictLine"></div>
-    </div>
-    <p class="lede">Every frame below is your image, actually degraded — not a simulation of the score. The competition weights clean and degraded performance equally, so this is the half of the result a clean verdict alone cannot show.</p>
-    <div id="families"></div>
-    <p class="note" id="spreadNote"></p>
-  </section>
-
   <details>
     <summary>Score a folder</summary>
     <p class="sub">The same scoring the command line does, for up to 200 images at once.</p>
@@ -246,13 +223,38 @@ footer{border-top:1px solid var(--edge);padding:26px 0 46px;color:var(--dim);
     </div>
   </details>
 
-  <details>
-    <summary>Inference endpoint</summary>
-    <p class="sub">Point the page at a different server. Blank uses the origin it was served from.</p>
-    <div class="inner">
-      <input id="api" placeholder="https://your-host  (blank = same origin)" aria-label="Inference endpoint URL">
+  <section class="stage">
+    <div>
+      <div id="drop" tabindex="0" role="button" aria-label="Choose an image to analyse">
+        <div id="dropText">Drop an image here, or click to choose</div>
+        <img id="preview" alt="Selected image preview" hidden>
+      </div>
+      <div class="hint">JPEG · PNG · WebP, up to 25 MB. Scored in memory and discarded — nothing is stored.</div>
+      <input id="file" type="file" accept="image/*" hidden>
+      <div class="err" id="err" role="alert"></div>
     </div>
-  </details>
+
+    <div class="verdict">
+      <div class="call" id="call">Awaiting an image</div>
+      <div class="conf" id="conf">The verdict and its confidence appear here.</div>
+      <div class="bar" id="barWrap"><i id="bar"></i><span class="thr" id="thrMark" hidden></span></div>
+      <div class="scale"><span>authentic</span><span id="probTxt">P(AI) —</span><span>AI-generated</span></div>
+      <div class="meta" id="meta"></div>
+    </div>
+  </section>
+
+  <section class="gauntlet" id="gauntlet" hidden>
+    <div class="gsplit">
+      <h2>The same image, after the internet gets to it</h2>
+      <div id="verdictLine"></div>
+    </div>
+    <p class="lede">Every frame below is your image, actually degraded — not a simulation of the score. The competition weights clean and degraded performance equally, so this is the half of the result a clean verdict alone cannot show.</p>
+    <div class="legend" id="legend" hidden></div>
+    <div id="families"></div>
+    <p class="note" id="spreadNote"></p>
+  </section>
+
+
 
   <footer>
     TikTok TechJam 2026 · Problem Statement 5. The reported score is threshold-free ROC-AUC;
@@ -264,16 +266,12 @@ footer{border-top:1px solid var(--edge);padding:26px 0 46px;color:var(--dim);
 
 <script>
 const $ = (id) => document.getElementById(id);
-const drop = $("drop"), fileInput = $("file"), api = $("api");
+const drop = $("drop"), fileInput = $("file");
 let currentFile = null;
 
-try { api.value = localStorage.getItem("apiBase") || ""; } catch (e) {}
-api.addEventListener("change", () => {
-  try { localStorage.setItem("apiBase", api.value.trim()); } catch (e) {}
-  checkHealth();
-});
-
-const base = () => api.value.trim().replace(/\/$/, "");
+// The page is served by the same process that holds the model, so every
+// request goes to the origin it came from. No endpoint to configure.
+const base = () => "";
 const setError = (m) => { $("err").textContent = m || ""; };
 const pct = (v) => (v * 100).toFixed(1) + "%";
 
@@ -332,7 +330,7 @@ function render(d) {
 async function predict() {
   $("call").textContent = "Reading"; $("call").className = "call";
   $("conf").innerHTML = '<span class="spin"></span>';
-  $("meta").textContent = ""; $("robustBtn").disabled = true;
+  $("meta").textContent = "";
   const body = new FormData(); body.append("file", currentFile);
   try {
     const r = await fetch(base() + "/predict", { method: "POST", body });
@@ -341,7 +339,7 @@ async function predict() {
     render(d);
     $("meta").textContent = d.width + "×" + d.height + " · logit " + d.logit.toFixed(2) +
       " · flagged when P(AI) ≥ " + d.threshold;
-    $("robustBtn").disabled = false;
+    runGauntlet();                    // the robustness pass is the point, not an extra click
   } catch (e) {
     $("conf").textContent = ""; $("call").textContent = "—"; $("call").className = "call";
     setError(String(e.message || e));
@@ -355,11 +353,12 @@ const FAMILY_LABEL = {
   center_crop: "reframing"
 };
 
-$("robustBtn").addEventListener("click", async () => {
-  const btn = $("robustBtn"), g = $("gauntlet"), fams = $("families");
-  btn.disabled = true; btn.textContent = "Degrading and re-scoring…";
+async function runGauntlet() {
+  const g = $("gauntlet"), fams = $("families");
   g.hidden = false; fams.innerHTML = "";
-  $("verdictLine").textContent = ""; $("spreadNote").textContent = "";
+  $("legend").hidden = true;
+  $("verdictLine").textContent = "re-scoring under 15 conditions…";
+  $("spreadNote").textContent = "";
 
   const skel = document.createElement("div");
   skel.className = "frames";
@@ -378,6 +377,19 @@ $("robustBtn").addEventListener("click", async () => {
 
     const thr = d.threshold;
     const baseAI = d.p_ai_clean >= thr;
+    const thrPct = (thr * 100).toFixed(0) + "%";
+
+    const lg = $("legend");
+    lg.innerHTML =
+      '<span class="lg"><span class="num">86.3%</span> ' +
+        '<span>the number on each frame is <b>P(AI)</b> — how likely the model finds ' +
+        'that degraded copy AI-generated</span></span>' +
+      '<span class="lg"><i class="swatch ai"></i> at or above ' + thrPct +
+        ' → called <b>AI-generated</b></span>' +
+      '<span class="lg"><i class="swatch real"></i> below ' + thrPct +
+        ' → called <b>authentic</b></span>' +
+      '<span class="lg"><b>held</b> = the degraded copy kept the same verdict as the original</span>';
+    lg.hidden = false;
 
     const order = [], groups = {};
     d.conditions.forEach((c) => {
@@ -436,10 +448,8 @@ $("robustBtn").addEventListener("click", async () => {
     fams.innerHTML = ""; $("verdictLine").textContent = "";
     setError(String(e.message || e));
     g.hidden = true;
-  } finally {
-    btn.disabled = false; btn.textContent = "Run the gauntlet — 15 conditions";
   }
-});
+}
 
 /* ---------- batch ---------- */
 const bdrop = $("bdrop"), bfile = $("bfile"), bdir = $("bdir");

@@ -231,10 +231,21 @@ production deployment, no localisation. Consistent with this project.
 
 ## Try it (2 minutes)
 
-**Easiest — the guided menu.** Double-click **`run.bat`** (Windows) or run
-**`bash run.sh`** (Linux/macOS). It sets up the environment, fetches the
-weights, and offers: smoke test · predict a folder · web demo · **evaluate on
-the WildFake benchmark** (streamed — no dataset download) · train.
+**Fastest path — score a folder in one command.** No flags, no menu, no
+prompts. It downloads the weights itself on first run:
+
+```bash
+pip install -r requirements-cuda.txt      # NVIDIA / CPU
+python inference.py <folder_of_images>    # → predictions.json
+```
+
+That is the whole thing. `python inference.py demo_images` scores the six
+bundled samples and should return **6/6 correct** on CPU in about ten seconds.
+
+**Guided menu.** Double-click **`run.bat`** (Windows) or run **`bash run.sh`**
+(Linux/macOS) for an interactive version: setup · weights · smoke test ·
+predict a folder · web demo · **evaluate on the WildFake benchmark**
+(streamed — no dataset download) · train.
 
 Or do it by hand:
 
@@ -257,14 +268,22 @@ python pipeline.py predict \
   --device auto
 ```
 
-`predictions.json` → `[{"image_path": "...", "pred": 0|1}]`.
-`predictions.scores.csv` → the calibrated `probability_ai` alongside.
+Both entry points write the same two files:
 
-> `runs/iter6/best.pt` is ~88 MB and **not in git** (large binary). Download
-> it from the HuggingFace model repo linked at the top, or run
-> `python hf_upload/upload.py` to publish your own copy. The frozen CLIP
-> weights are rebuilt from the pinned public checkpoint on load, so the file
-> stays small.
+```jsonc
+// predictions.json
+[{"image_path": "...", "pred": 0|1, "probability_ai": 0.9993}]
+```
+
+`pred` is the 0/1 label; **`probability_ai` is the continuous score** — the
+scored metric is threshold-free ROC-AUC, so the probability is included in
+the JSON itself rather than only in the sidecar. `predictions.scores.csv`
+carries `probability_ai` and `confidence` for spreadsheet use.
+
+> `runs/iter6/best.pt` is ~87 MB and **not in git** (large binary). Both
+> `inference.py` and the menu fetch it automatically from the
+> [`v1.0-iter6a` release](https://github.com/KIREETI001/TikTok-Tech-Jam-2026/releases/tag/v1.0-iter6a);
+> the direct link is in that release if you would rather download it by hand.
 
 **3 — the interactive demo:**
 

@@ -520,7 +520,15 @@ def predict_folder(
             for path, probability in zip(paths, probabilities, strict=True):
                 score = float(probability)
                 pred = int(score >= cutoff)
-                strict_records.append({"image_path": str(path), "pred": pred})
+                # Both keys, deliberately. "pred" is the 0/1 label the
+                # deliverable format asks for; "probability_ai" is the
+                # continuous score the scored metric (ROC-AUC) actually needs.
+                # Emitting only the label would collapse any AUC computed from
+                # this file into a step function -- a real risk if whoever
+                # scores it reads predictions.json rather than the sidecar CSV.
+                strict_records.append(
+                    {"image_path": str(path), "pred": pred, "probability_ai": score}
+                )
                 score_rows.append(
                     {
                         "image_path": str(path),

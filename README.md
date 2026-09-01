@@ -13,6 +13,7 @@ compression, blur, resizing and noise every image picks up in circulation.
 |---|---|
 | **Live demo** | run `serve_demo.ps1` → a public `https://<...>.trycloudflare.com` URL (see [Try it](#try-it-2-minutes)) |
 | **Model weights** | [**`v1.0` release**](https://github.com/KIREETI001/TikTok-Tech-Jam-2026/releases/tag/v1.0) — 21.7M params, 87 MB, Apache-2.0 (`inference.py` fetches it automatically) |
+| **Browser extension** | [`extension/`](extension/) — right-click any page → *Check the main image*, video included |
 | **Demo video** | *(link in the Devpost submission)* |
 | **Robustness table** | [below](#robustness-the-15-condition-matrix) · full: [`docs/ERROR_ANALYSIS.md`](docs/ERROR_ANALYSIS.md) |
 | **Error-analysis note** | [`docs/ERROR_ANALYSIS.md`](docs/ERROR_ANALYSIS.md) + FP/FN montages [below](#error-analysis) |
@@ -303,6 +304,25 @@ powershell -ExecutionPolicy Bypass -File serve_demo.ps1
 
 Prints a `https://<...>.trycloudflare.com` link; **Ctrl+C** stops it.
 
+**5 — check what is on screen, in the browser you already use** (optional):
+
+Load [`extension/`](extension/) at `chrome://extensions` → **Developer mode**
+→ **Load unpacked**, paste the detector URL into its popup, then right-click any
+page → *Check the main image on this page* (or press **Alt+Shift+A**).
+
+It ranks candidates by visible area weighted toward the centre of the viewport,
+so on a social feed it reads the post rather than the sidebar thumbnails and
+avatars, and it rings its choice on the page so you can see what it picked
+before you trust the number. Video works too — there is no image URL to
+fetch and a canvas frame grab is blocked by cross-origin tainting, so it crops a
+screenshot of the tab. That path is labelled **"from screen capture"** in the
+panel, because a frame already scaled by the browser and already through the
+site's codec is weaker evidence than an image's original bytes — which is
+the same finding the detector itself is built on.
+
+[`extension/README.md`](extension/README.md) has the bands, the limits, and the
+two bugs the browser tests caught.
+
 **Verify the smoke test** (synthetic data, no dataset needed):
 
 ```bash
@@ -350,8 +370,9 @@ config.yaml           the exact training configuration behind the shipped checkp
 detector/             model · data · transforms · training · evaluation · calibration
 scripts/              corpus builders, matched-set builder, shortcut probe, stream-eval
 webapp/               FastAPI demo — single · 15-condition robustness · batch
+extension/            Chrome extension (MV3) — right-click → check the main image
 serve_demo.ps1        one command → a public Cloudflare-tunnel URL
-evaluate.sh     full 15-condition eval + FP/FN montages for a checkpoint
+evaluate.sh           full 15-condition eval + FP/FN montages for a checkpoint
 docs/                 error-analysis note, FP/FN montages, full experiment log
 demo_images/          six labelled samples (4 AI, 2 authentic) to try it on
 requirements*.txt     cuda / cpu

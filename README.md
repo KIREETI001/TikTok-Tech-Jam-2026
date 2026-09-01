@@ -144,7 +144,8 @@ We took that literally, and then tested it.
   GenImage ADM/GLIDE. That last piece exists solely because our own error
   analysis showed pixel-space diffusion was where the detector was blind.
 - **21.7M params** — 92× under the 2B limit. Runs on a laptop **CPU** at
-  ~1 s/image; the bundled `demo_images/` score 6/6 correct there.
+  ~0.3 s/image for the forward pass (measured, 14 threads; ~0.5 s end to end
+  including decode); the bundled `demo_images/` score 6/6 correct there.
 
 ### What we tried that did **not** work (measured, not guessed)
 
@@ -322,7 +323,7 @@ site's codec is weaker evidence than an image's original bytes — which is
 the same finding the detector itself is built on.
 
 [`extension/README.md`](extension/README.md) has the bands, the limits, and the
-two bugs the browser tests caught.
+six bugs the browser tests caught.
 
 **Verify the smoke test** (synthetic data, no dataset needed):
 

@@ -136,8 +136,8 @@ toward generated and is not confident enough to say so.
 - **It sends images to your detector.** Every scored image is fetched by the
   extension and posted to the URL you configured. Point it at your own server.
   Running the model in the browser instead — the model is 21.7M parameters and
-  ~146 ms/image on CPU, so this is realistic — is the obvious next step and is
-  not implemented here.
+  ~0.3 s/image on a laptop CPU, so this is realistic — is the obvious next step
+  and is not implemented here.
 - `<all_urls>` host permission is requested so the background worker can fetch
   image bytes that a content script cannot, because of the page's own CORS and
   CSP. That is a broad permission; read `background.js`, it is ~100 lines.
@@ -164,24 +164,35 @@ popup.js       detector URL, AI band boundary, live health readout
 
 ## Verified in a browser
 
-The extension is exercised end to end under Playwright with the real detector
-running. A feed-shaped fixture puts an **authentic** photo in the centre and
-**AI** images in every sidebar slot, so a mis-pick moves the score in an
-unmistakable direction; 12 further assertions cover the picker, the ring
-geometry, the video capture path, and — critically — that the captured pixels
-are not blank. An earlier suite passed on a solid black crop because it asserted
-only on the score.
+Every change here is exercised end to end under Playwright, with the extension
+loaded and the real detector running. The fixture is feed-shaped: an
+**authentic** photo in the centre, **AI** images in every sidebar slot, so a
+mis-pick moves the score in an unmistakable direction rather than a subtle one.
 
-An earlier 17 assertions cover: nothing injected before the first request;
-the pending state; the panel naming its subject by thumbnail and ring; the ring
-tracking the right image and taking the band colour; all three bands landing on
-the right scores; the legend's numbers; a second scan replacing the first rather
-than adding to it; a single overlay layer; hover pausing the countdown; expiry
-to an em dash; the ring clearing with it; re-scan after idle; the close button;
-the panel returning on the next scan; and a clean console.
+Across those suites the assertions cover the button appearing without a
+right-click; the panel's resting size; the picker choosing the centre over
+seven decoys; the ring matching the chosen element exactly; all three bands
+landing on the right scores; the legend's numbers; a second scan replacing the
+first rather than adding to it; a single overlay layer across scrolling; expiry
+to an em dash with the cursor parked on the panel; the countdown pausing while
+the pointer moves over it; the popup toggle removing and restoring the panel;
+and a clean console.
 
-Two real bugs were caught this way and are fixed: `ensureLayer` tested
-`document.body.contains` on a node parented to `documentElement`, so it appended
-a fresh overlay layer on every call; and `placeRing` set `style.display = ""` on
-an element the stylesheet defaults to `display: none`, so the ring never
-appeared at all.
+**Six real bugs were caught this way**, each of which parsed cleanly and would
+have shipped:
+
+1. `ensureLayer` tested `document.body.contains` on a node parented to
+   `documentElement`, so every call appended another overlay layer.
+2. `placeRing` set `style.display = ""` on an element the stylesheet defaults to
+   `display: none`, so the ring never appeared at all.
+3. The capture crop scaled by `devicePixelRatio`, which reports 1 under OS
+   display scaling while the screenshot returns at 2x — so it cropped a
+   different part of the screen and returned a plausible score for the wrong
+   pixels. The suite now asserts on the captured pixels, not only the score.
+4. The capture included our own overlay: the ring sits on the element's edge
+   and the panel can overlap the crop.
+5. The hover-pause made a reading immortal. Clicking the button leaves the
+   cursor on the panel, so the countdown rescheduled forever.
+6. The panel was only built inside the callback of a message to the service
+   worker, so a failed round-trip left the page with no button and no way to
+   ask for one.

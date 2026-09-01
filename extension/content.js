@@ -395,14 +395,28 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-chrome.runtime.sendMessage({ type: "settings" }, (s) => {
-  if (chrome.runtime.lastError || !s) return;
-  CFG.aiBand = s.aiBand;
-  CFG.showButton = s.showButton !== false;
-  // With the button on, the panel is present from the start -- that is the
-  // whole point of it. With the button off the old rule holds: nothing is put
-  // on the page at all until you ask.
-  if (CFG.showButton) ensurePanel();
-  addEventListener("scroll", reposition, { passive: true });
-  addEventListener("resize", reposition, { passive: true });
-});
+/* Build from the defaults FIRST, then reconcile.
+ *
+ * The button must not depend on a round-trip to the service worker succeeding.
+ * Reloading an unpacked extension invalidates the context of every content
+ * script already on a page, and an MV3 worker can be asleep when the first
+ * message goes out; either way the callback never runs. Gating ensurePanel on
+ * it meant the page silently ended up with no button and no way to ask for
+ * one -- a failure that looks exactly like the feature not existing. */
+if (CFG.showButton) ensurePanel();
+addEventListener("scroll", reposition, { passive: true });
+addEventListener("resize", reposition, { passive: true });
+
+try {
+  chrome.runtime.sendMessage({ type: "settings" }, (s) => {
+    if (chrome.runtime.lastError || !s) return;      // keep the defaults
+    CFG.aiBand = s.aiBand;
+    CFG.showButton = s.showButton !== false;
+    if (CFG.showButton) ensurePanel(); else dismiss();
+    if (panel) renderLegend();
+  });
+} catch (e) {
+  // sendMessage throws outright once the extension context is gone. The panel
+  // is already up, so there is nothing to recover -- just do not take the page
+  // down with us.
+}

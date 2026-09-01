@@ -1,4 +1,4 @@
-/* Chain of Custody — the reading panel.
+/* PixelProof — the reading panel.
  *
  * Everything lives in one fixed layer appended to documentElement, so nothing
  * is injected into the host site's own tree and its layout is never disturbed.
@@ -9,7 +9,7 @@
  * from something hostile.
  */
 
-.coc-layer{
+.pp-layer{
   position: fixed;
   inset: 0;
   pointer-events: none;
@@ -19,7 +19,7 @@
 /* The ring marks which image the reading is about. A panel in the corner is
  * unambiguous about the verdict and silent about the subject; this says the
  * subject out loud, on the page, where the cursor already is. */
-.coc-ring{
+.pp-ring{
   position: absolute;
   top: 0; left: 0;
   display: none;
@@ -30,7 +30,7 @@
   pointer-events: none;
 }
 
-.coc-panel{
+.pp-panel{
   position: absolute;
   right: 16px;
   bottom: 16px;
@@ -57,19 +57,19 @@
  * that row is replaced by the reading. One object, two sizes -- so the page
  * never carries a button AND a panel to do one job.
  */
-.coc-panel[data-state="idle"]{ width: auto; }
-.coc-panel[data-state="idle"] .coc-head,
-.coc-panel[data-state="idle"] .coc-body,
-.coc-panel[data-state="idle"] .coc-legend{ display: none; }
-.coc-panel:not([data-state="idle"]) .coc-idle{ display: none; }
+.pp-panel[data-state="idle"]{ width: auto; }
+.pp-panel[data-state="idle"] .pp-head,
+.pp-panel[data-state="idle"] .pp-body,
+.pp-panel[data-state="idle"] .pp-legend{ display: none; }
+.pp-panel:not([data-state="idle"]) .pp-idle{ display: none; }
 
-.coc-idle{
+.pp-idle{
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 5px 6px 5px 5px;
 }
-.coc-go{
+.pp-go{
   all: unset;
   display: flex;
   align-items: center;
@@ -85,25 +85,25 @@
   transition-duration: 130ms;
   transition-timing-function: ease-out;
 }
-.coc-go:hover{ background: #1C242B; }
-.coc-go:active{ background: #202932; }
-.coc-go:focus-visible{ outline: 2px solid #4FA8B8; outline-offset: -2px; }
-.coc-go[disabled]{ cursor: default; color: #8A97A3; }
-.coc-golabel{ white-space: nowrap; }
+.pp-go:hover{ background: #1C242B; }
+.pp-go:active{ background: #202932; }
+.pp-go:focus-visible{ outline: 2px solid #4FA8B8; outline-offset: -2px; }
+.pp-go[disabled]{ cursor: default; color: #8A97A3; }
+.pp-golabel{ white-space: nowrap; }
 
 /* The mark: an aperture, small enough to read as an icon at 9px. */
-.coc-dot{
+.pp-dot{
   width: 9px; height: 9px;
   flex: 0 0 auto;
   border-radius: 50%;
   border: 2px solid #4FA8B8;
   box-shadow: 0 0 8px rgba(79,168,184,.45);
 }
-.coc-go[disabled] .coc-dot{ border-color: #6E7C88; box-shadow: none; }
+.pp-go[disabled] .pp-dot{ border-color: #6E7C88; box-shadow: none; }
 
 /* ---------------------------------------------------------------- head row */
 
-.coc-head{
+.pp-head{
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -111,13 +111,13 @@
   padding: 8px 8px 8px 12px;
   border-bottom: 1px solid #1C242B;
 }
-.coc-mark{
+.pp-mark{
   font: 600 9.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: .13em;
   text-transform: uppercase;
   color: #8A97A3;
 }
-.coc-close{
+.pp-close{
   /* 28px of hit area around a 12px glyph -- the visible mark is small because
    * it is not the point of the panel, but it still has to be clickable. */
   all: unset;
@@ -132,18 +132,18 @@
   transition-duration: 120ms;
   transition-timing-function: ease-out;
 }
-.coc-close:hover{ background: #1C242B; color: #EDE9E1; }
-.coc-close:focus-visible{ outline: 2px solid #4FA8B8; outline-offset: 1px; }
+.pp-close:hover{ background: #1C242B; color: #EDE9E1; }
+.pp-close:focus-visible{ outline: 2px solid #4FA8B8; outline-offset: 1px; }
 
 /* ---------------------------------------------------------------- the read */
 
-.coc-body{
+.pp-body{
   display: flex;
   align-items: center;
   gap: 11px;
   padding: 12px;
 }
-.coc-thumb{
+.pp-thumb{
   width: 46px; height: 46px;
   flex: 0 0 auto;
   object-fit: cover;
@@ -154,17 +154,17 @@
   outline-offset: -1px;
   display: none;
 }
-.coc-panel[data-state="busy"] .coc-thumb,
-.coc-panel[data-state="result"] .coc-thumb{ display: block; }
+.pp-panel[data-state="busy"] .pp-thumb,
+.pp-panel[data-state="result"] .pp-thumb{ display: block; }
 
-.coc-read{ min-width: 0; }
-.coc-score{
+.pp-read{ min-width: 0; }
+.pp-score{
   font: 600 25px/1.05 "IBM Plex Sans", system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
   letter-spacing: -.015em;
   color: #6E7C88;
 }
-.coc-word{
+.pp-word{
   margin-top: 2px;
   font-size: 11.5px;
   line-height: 1.35;
@@ -175,26 +175,26 @@
 
 /* The three bands. Colour states the verdict; the panel is small enough that
  * the number and the word carry it even where colour does not read. */
-.coc-panel[data-band="ai"]    .coc-score{ color: #E2703A; }
-.coc-panel[data-band="maybe"] .coc-score{ color: #D9A441; }
-.coc-panel[data-band="real"]  .coc-score{ color: #4FA8B8; }
-.coc-panel[data-band="ai"]    .coc-word,
-.coc-panel[data-band="maybe"] .coc-word,
-.coc-panel[data-band="real"]  .coc-word{ color: #EDE9E1; }
+.pp-panel[data-band="ai"]    .pp-score{ color: #E2703A; }
+.pp-panel[data-band="maybe"] .pp-score{ color: #D9A441; }
+.pp-panel[data-band="real"]  .pp-score{ color: #4FA8B8; }
+.pp-panel[data-band="ai"]    .pp-word,
+.pp-panel[data-band="maybe"] .pp-word,
+.pp-panel[data-band="real"]  .pp-word{ color: #EDE9E1; }
 
 /* The ring takes the band's colour too, set as a class from content.js -- it
  * is a sibling of the panel and precedes it, so no combinator reaches it. */
-.coc-ring-ai{    border-color: #E2703A; box-shadow: 0 0 0 1px rgba(11,14,17,.55), 0 0 22px rgba(226,112,58,.28); }
-.coc-ring-maybe{ border-color: #D9A441; border-style: dashed; box-shadow: 0 0 0 1px rgba(11,14,17,.55), 0 0 22px rgba(217,164,65,.24); }
-.coc-ring-real{  border-color: #4FA8B8; box-shadow: 0 0 0 1px rgba(11,14,17,.55), 0 0 22px rgba(79,168,184,.22); }
-.coc-ring-busy{  border-color: #6E7C88; border-style: dashed; box-shadow: 0 0 0 1px rgba(11,14,17,.55); }
+.pp-ring-ai{    border-color: #E2703A; box-shadow: 0 0 0 1px rgba(11,14,17,.55), 0 0 22px rgba(226,112,58,.28); }
+.pp-ring-maybe{ border-color: #D9A441; border-style: dashed; box-shadow: 0 0 0 1px rgba(11,14,17,.55), 0 0 22px rgba(217,164,65,.24); }
+.pp-ring-real{  border-color: #4FA8B8; box-shadow: 0 0 0 1px rgba(11,14,17,.55), 0 0 22px rgba(79,168,184,.22); }
+.pp-ring-busy{  border-color: #6E7C88; border-style: dashed; box-shadow: 0 0 0 1px rgba(11,14,17,.55); }
 
 /* ---------------------------------------------------------------- legend */
 
 /* Three columns -- swatch, name, range -- so the ranges line up under each
  * other. Wrapping these as inline chips reads as an accident; a grid reads as
  * a table, which is what a legend is. */
-.coc-legend{
+.pp-legend{
   display: grid;
   grid-template-columns: auto auto 1fr;
   align-items: center;
@@ -207,10 +207,10 @@
 }
 /* display:contents lifts each row's three children into the parent grid, so
  * they share its columns instead of forming their own little box. */
-.coc-lg{ display: contents; }
-.coc-lg b{ font-weight: 500; color: #8A97A3; white-space: nowrap; }
-.coc-lg small{ font-size: 10px; color: #5C6873; text-align: right; white-space: nowrap; }
-.coc-k{
+.pp-lg{ display: contents; }
+.pp-lg b{ font-weight: 500; color: #8A97A3; white-space: nowrap; }
+.pp-lg small{ font-size: 10px; color: #5C6873; text-align: right; white-space: nowrap; }
+.pp-k{
   width: 7px; height: 7px;
   border-radius: 2px;
   border: 1px solid;
@@ -218,10 +218,10 @@
 }
 /* Mirrors the score colours exactly. A legend whose swatches drift from the
  * thing they explain is worse than no legend. */
-.coc-k-ai{    border-color: #E2703A; background: rgba(226,112,58,.35); }
-.coc-k-maybe{ border-color: #D9A441; background: rgba(217,164,65,.3); border-style: dashed; }
-.coc-k-real{  border-color: #4FA8B8; background: rgba(79,168,184,.3); }
+.pp-k-ai{    border-color: #E2703A; background: rgba(226,112,58,.35); }
+.pp-k-maybe{ border-color: #D9A441; background: rgba(217,164,65,.3); border-style: dashed; }
+.pp-k-real{  border-color: #4FA8B8; background: rgba(79,168,184,.3); }
 
 @media (prefers-reduced-motion: reduce){
-  .coc-close{ transition-duration: 0ms; }
+  .pp-close{ transition-duration: 0ms; }
 }

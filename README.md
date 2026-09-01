@@ -1,4 +1,4 @@
-# Robust AI-Generated Image Detection
+# PixelProof — robust AI-generated image detection
 
 **TikTok TechJam 2026 · Problem Statement 5** — build a prototype that tells
 AI-generated images from authentic photographs, and *keeps working* after the

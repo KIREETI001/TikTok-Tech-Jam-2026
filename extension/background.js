@@ -1,4 +1,4 @@
-/* Chain of Custody — background service worker.
+/* PixelProof — background service worker.
  *
  * Everything that touches the network lives here, for one specific reason: a
  * content script's fetch runs in the *page's* origin, so pulling bytes off
@@ -164,12 +164,12 @@ chrome.runtime.onInstalled.addListener(() => {
     // thing you are actually looking at is usually a <video> that offers no
     // image menu at all.
     chrome.contextMenus.create({
-      id: "cocMain",
+      id: "ppMain",
       title: "Check the main image on this page",
       contexts: ["page", "video", "image", "frame", "selection", "link"],
     });
     chrome.contextMenus.create({
-      id: "cocScan",
+      id: "ppScan",
       title: "Check this image for AI",
       contexts: ["image"],
     });
@@ -192,9 +192,9 @@ async function run(tab, work, url) {
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (!tab?.id) return;
-  if (info.menuItemId === "cocScan") run(tab, () => score(info.srcUrl), info.srcUrl);
+  if (info.menuItemId === "ppScan") run(tab, () => score(info.srcUrl), info.srcUrl);
   // checkMain sends its own "scanning" once it knows what it picked.
-  else if (info.menuItemId === "cocMain") run(tab, () => checkMain(tab));
+  else if (info.menuItemId === "ppMain") run(tab, () => checkMain(tab));
 });
 
 /* Keyboard route, for a feed you are scrolling with one hand. */

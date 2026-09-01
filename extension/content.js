@@ -1,4 +1,4 @@
-/* Chain of Custody — one reading at a time.
+/* PixelProof — one reading at a time.
  *
  * The interaction is deliberately narrow. You ask about one thing -- the main
  * element on the page, or a specific image you right-click -- and one panel in
@@ -56,7 +56,7 @@ function ensureLayer() {
   // documentElement, so a body-based check is always false and every call
   // would build another layer.
   if (layer && layer.isConnected) return layer;
-  layer = el("div", "coc-layer");
+  layer = el("div", "pp-layer");
   document.documentElement.appendChild(layer);
   return layer;
 }
@@ -70,18 +70,18 @@ function buildPanel() {
   // isolated world, but sites that enforce Trusted Types are exactly the sites
   // this most needs to work on, and there is no reason to depend on that
   // exemption holding.
-  ring = el("div", "coc-ring");
+  ring = el("div", "pp-ring");
   layer.appendChild(ring);
 
-  panel = el("div", "coc-panel");
+  panel = el("div", "pp-panel");
   panel.dataset.state = "idle";
 
-  const head = el("div", "coc-head");
-  head.appendChild(el("span", "coc-mark", "Chain of Custody"));
-  const close = el("button", "coc-close", "×");
+  const head = el("div", "pp-head");
+  head.appendChild(el("span", "pp-mark", "PixelProof"));
+  const close = el("button", "pp-close", "×");
   close.type = "button";
   close.title = "Hide this panel";
-  close.setAttribute("aria-label", "Hide the Chain of Custody panel");
+  close.setAttribute("aria-label", "Hide the PixelProof panel");
   close.addEventListener("click", dismiss);
   head.appendChild(close);
 
@@ -89,36 +89,36 @@ function buildPanel() {
   // would put two pieces of our UI on someone else's page to do one job; this
   // way the resting state and the affordance are the same object, and the
   // reading simply grows out of the thing you pressed.
-  const idle = el("div", "coc-idle");
-  ui.go = el("button", "coc-go");
+  const idle = el("div", "pp-idle");
+  ui.go = el("button", "pp-go");
   ui.go.type = "button";
-  ui.go.appendChild(el("span", "coc-dot"));
-  ui.go.appendChild(el("span", "coc-golabel", "Check main image"));
+  ui.go.appendChild(el("span", "pp-dot"));
+  ui.go.appendChild(el("span", "pp-golabel", "Check main image"));
   ui.go.title = "Score the main image on this page (Alt+Shift+A)";
   ui.go.addEventListener("click", () => {
     ui.go.disabled = true;
     chrome.runtime.sendMessage({ type: "checkMain" });
   });
-  const hide = el("button", "coc-close", "×");
+  const hide = el("button", "pp-close", "×");
   hide.type = "button";
   hide.title = "Hide until the next check";
-  hide.setAttribute("aria-label", "Hide the Chain of Custody panel");
+  hide.setAttribute("aria-label", "Hide the PixelProof panel");
   hide.addEventListener("click", dismiss);
   idle.appendChild(ui.go);
   idle.appendChild(hide);
 
-  const body = el("div", "coc-body");
-  ui.thumb = el("img", "coc-thumb");
+  const body = el("div", "pp-body");
+  ui.thumb = el("img", "pp-thumb");
   ui.thumb.alt = "";
-  const read = el("div", "coc-read");
-  ui.score = el("div", "coc-score", "—");
-  ui.word = el("div", "coc-word", IDLE_HINT);
+  const read = el("div", "pp-read");
+  ui.score = el("div", "pp-score", "—");
+  ui.word = el("div", "pp-word", IDLE_HINT);
   read.appendChild(ui.score);
   read.appendChild(ui.word);
   body.appendChild(ui.thumb);
   body.appendChild(read);
 
-  ui.legend = el("div", "coc-legend");
+  ui.legend = el("div", "pp-legend");
 
   panel.appendChild(idle);
   panel.appendChild(head);
@@ -149,8 +149,8 @@ function renderLegend() {
   ];
   ui.legend.textContent = "";
   for (const [key, name, range] of bands) {
-    const row = el("span", "coc-lg");
-    row.appendChild(el("i", "coc-k coc-k-" + key));
+    const row = el("span", "pp-lg");
+    row.appendChild(el("i", "pp-k pp-k-" + key));
     row.appendChild(el("b", null, name));
     // Always appended, even when empty: the row is a grid row, and a missing
     // cell would shift every band below it out of alignment.
@@ -172,7 +172,7 @@ function bandOf(p, threshold, high) {
 /* ------------------------------------------------------------------ the ring */
 
 function ringBand(key) {
-  if (ring) ring.className = "coc-ring" + (key ? " coc-ring-" + key : "");
+  if (ring) ring.className = "pp-ring" + (key ? " pp-ring-" + key : "");
 }
 
 function placeRing() {
@@ -183,7 +183,7 @@ function placeRing() {
     ring.style.display = "none";
     return;
   }
-  // "block", not "" -- .coc-ring is display:none in the stylesheet, so clearing
+  // "block", not "" -- .pp-ring is display:none in the stylesheet, so clearing
   // the inline value falls back to hidden rather than showing it.
   ring.style.display = "block";
   ring.style.transform = "translate(" + Math.round(r.left) + "px," + Math.round(r.top) + "px)";

@@ -1,4 +1,4 @@
-# Chain of Custody — Chrome extension (experimental)
+# PixelProof — Chrome extension (experimental)
 
 Checks one thing at a time, on request, using the detector from this repository.
 

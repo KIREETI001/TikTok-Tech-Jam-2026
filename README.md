@@ -307,8 +307,9 @@ Prints a `https://<...>.trycloudflare.com` link; **Ctrl+C** stops it.
 **5 — check what is on screen, in the browser you already use** (optional):
 
 Load [`extension/`](extension/) at `chrome://extensions` → **Developer mode**
-→ **Load unpacked**, paste the detector URL into its popup, then right-click any
-page → *Check the main image on this page* (or press **Alt+Shift+A**).
+→ **Load unpacked**, paste the detector URL into its popup, then click **Check main
+image** in the corner of any page (or press **Alt+Shift+A**, or right-click →
+*Check the main image on this page*).
 
 It ranks candidates by visible area weighted toward the centre of the viewport,
 so on a social feed it reads the post rather than the sidebar thumbnails and

@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 $("ver").textContent = "v" + chrome.runtime.getManifest().version;
-const KEYS = { apiBase: "", aiBand: 0.9 };
+const KEYS = { apiBase: "", aiBand: 0.9, showButton: true };
 
 function health() {
   const el = $("status");
@@ -20,8 +20,10 @@ chrome.storage.sync.get(KEYS, (s) => {
   const v = { ...KEYS, ...s };
   $("api").value = v.apiBase;
   $("band").value = v.aiBand;
+  $("btn").checked = v.showButton !== false;
   health();
 });
 
 $("api").addEventListener("change", (e) => { save({ apiBase: e.target.value.trim() }); health(); });
+$("btn").addEventListener("change", (e) => save({ showButton: e.target.checked }));
 $("band").addEventListener("change", (e) => save({ aiBand: Math.min(0.99, Math.max(0.5, +e.target.value || 0.9)) }));

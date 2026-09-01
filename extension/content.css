@@ -51,6 +51,56 @@
   overflow: hidden;
 }
 
+/* -------------------------------------------------- resting state / button
+ *
+ * Idle, the panel collapses to a single row and becomes the control. Expanded,
+ * that row is replaced by the reading. One object, two sizes -- so the page
+ * never carries a button AND a panel to do one job.
+ */
+.coc-panel[data-state="idle"]{ width: auto; }
+.coc-panel[data-state="idle"] .coc-head,
+.coc-panel[data-state="idle"] .coc-body,
+.coc-panel[data-state="idle"] .coc-legend{ display: none; }
+.coc-panel:not([data-state="idle"]) .coc-idle{ display: none; }
+
+.coc-idle{
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 6px 5px 5px;
+}
+.coc-go{
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: 8px;
+  color: #EDE9E1;
+  font: 500 12.5px/1 "IBM Plex Sans", system-ui, sans-serif;
+  cursor: pointer;
+  transition-property: background-color, color;
+  transition-duration: 130ms;
+  transition-timing-function: ease-out;
+}
+.coc-go:hover{ background: #1C242B; }
+.coc-go:active{ background: #202932; }
+.coc-go:focus-visible{ outline: 2px solid #4FA8B8; outline-offset: -2px; }
+.coc-go[disabled]{ cursor: default; color: #8A97A3; }
+.coc-golabel{ white-space: nowrap; }
+
+/* The mark: an aperture, small enough to read as an icon at 9px. */
+.coc-dot{
+  width: 9px; height: 9px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 2px solid #4FA8B8;
+  box-shadow: 0 0 8px rgba(79,168,184,.45);
+}
+.coc-go[disabled] .coc-dot{ border-color: #6E7C88; box-shadow: none; }
+
 /* ---------------------------------------------------------------- head row */
 
 .coc-head{

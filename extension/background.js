@@ -18,6 +18,9 @@ const DEFAULTS = {
   // only make one when the model is well past merely leaning that way --
   // see README, "Why the AI band sits so far above the threshold".
   aiBand: 0.9,
+  // The on-page button. On by default: without it, right-click is the only way
+  // in, which is a lot of ceremony for a thing you do repeatedly.
+  showButton: true,
 };
 
 const cache = new Map();          // image url -> {p_ai, verdict, threshold}
@@ -82,8 +85,17 @@ async function toDataURL(blob) {
   return "data:" + blob.type + ";base64," + btoa(s);
 }
 
-async function captureAndScore(windowId, rect, view) {
-  const shot = await chrome.tabs.captureVisibleTab(windowId, { format: "png" });
+async function captureAndScore(tab, rect, view) {
+  // Hide our own overlay first. The ring sits exactly on the element's edge and
+  // the panel can overlap it, so a capture taken with the overlay up scores our
+  // own UI along with the image.
+  await chrome.tabs.sendMessage(tab.id, { type: "overlay", show: false });
+  let shot;
+  try {
+    shot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
+  } finally {
+    chrome.tabs.sendMessage(tab.id, { type: "overlay", show: true });
+  }
   const bmp = await createImageBitmap(await (await fetch(shot)).blob());
 
   // Derive the scale from the capture rather than from devicePixelRatio. Under
@@ -125,10 +137,17 @@ async function checkMain(tab) {
   if (pick.kind === "img" && pick.url && !pick.url.startsWith("blob:")) {
     return { ...(await score(pick.url)), url: pick.url };
   }
-  return await captureAndScore(tab.windowId, pick.rect, pick.view);
+  return await captureAndScore(tab, pick.rect, pick.view);
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  if (msg.type === "checkMain") {
+    // The on-page button routes through here, so it takes exactly the same
+    // path as the menu item and the shortcut rather than a parallel one.
+    const tab = sender.tab;
+    if (tab && tab.id) run(tab, () => checkMain(tab));
+    return false;
+  }
   if (msg.type === "settings") {
     settings().then((s) => reply(s));
     return true;                                    // keep the channel open

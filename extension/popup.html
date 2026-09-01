@@ -32,10 +32,13 @@
   .chip.ai{color:#E2703A} .chip.maybe{color:#D9A441} .chip.real{color:#4FA8B8}
   .band em{font-style:normal;font-size:11.5px;color:#EDE9E1;display:block}
   .band small{font-size:10.5px;color:#8A97A3}
+  .row{display:flex;align-items:center;gap:10px;margin-top:16px}
+  .row input{width:auto;min-height:auto}
+  .row span{font-size:13px}
 </style>
 <h1>Chain of Custody <span id="ver"></span></h1>
 <p class="sub"><b>Right-click → “Check the main image on this page”,
-or press Alt+Shift+A.</b> It picks the largest thing near the centre and ignores
+press Alt+Shift+A, or click the button it puts in the corner.</b> It picks the largest thing near the centre and ignores
 sidebars and thumbnails. One reading at a time; it clears after three seconds.</p>
 
 <label for="api">Detector URL</label>
@@ -48,6 +51,11 @@ sidebars and thumbnails. One reading at a time; it clears after three seconds.</
     <span><em>Uncertain</em><small>past the model’s threshold, below the AI band</small></span></div>
   <div class="band"><span class="chip real">7%</span>
     <span><em>Likely authentic</em><small>below the model’s threshold</small></span></div>
+</div>
+
+<div class="row">
+  <input id="btn" type="checkbox">
+  <span>Show the check button on pages</span>
 </div>
 
 <label for="band">AI band starts at</label>

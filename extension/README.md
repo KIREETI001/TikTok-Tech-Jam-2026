@@ -2,9 +2,10 @@
 
 Checks one thing at a time, on request, using the detector from this repository.
 
-Right-click anywhere → **Check the main image on this page**, or press
-**Alt+Shift+A**. One small panel appears in the corner with a thumbnail of what
-was checked, its score, and which band the score falls in. The element itself is
+Click **Check main image** in the bottom-right corner, press **Alt+Shift+A**, or
+right-click anywhere → **Check the main image on this page**. The panel
+expands with a thumbnail of what was checked, its score, and which band the
+score falls in. The element itself is
 ringed on the page, so there is never a question about what the reading refers
 to. After three seconds the reading clears to an em dash and waits for the next
 question.
@@ -94,11 +95,17 @@ badges were on screen there was no way to tell which one you had actually asked
 about. A single panel cannot have either problem — there is only ever one
 reading, and it names its own subject with a thumbnail and a ring.
 
+At rest the panel collapses to a single row and *is* the button, so the page
+never carries a button and a panel to do one job. Turn it off in the popup and
+the original rule holds: nothing is put on a page until you ask.
+
 The reading expires because an answer that stays forever becomes furniture. You
 stop reading it, and worse, you lose track of which image it belonged to.
 Expiring it means a number on screen is always about the thing you just asked
-about. The countdown pauses while the pointer is over the panel, because a
-reading should not vanish out from under someone still reading it.
+about. The countdown pauses while the pointer *moves* over the panel → not
+merely while it rests there, because clicking the button leaves the cursor
+parked on it, and hover alone would mean a reading started by the button never
+expired at all.
 
 An ambient mode that scored every image as you scrolled was removed for the same
 reason. It was the source of the noise, and it cannot coexist with one reading

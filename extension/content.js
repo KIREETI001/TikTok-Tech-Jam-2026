@@ -29,13 +29,14 @@
 const HOLD_MS = 3000;
 const IDLE_HINT = "right-click → check the main image";
 
-let CFG = { aiBand: 0.9 };
+let CFG = { aiBand: 0.9, showButton: true };
 let layer = null;
 let panel = null;
 let ring = null;
 const ui = {};
 let holdTimer = 0;
 let hovering = false;
+let movedAt = 0;      // when the pointer last moved *over the panel*
 let ringTarget = null;
 let raf = 0;
 let lastThreshold = null;
@@ -84,6 +85,28 @@ function buildPanel() {
   close.addEventListener("click", dismiss);
   head.appendChild(close);
 
+  // The panel at rest is the button. Making it a separate floating control
+  // would put two pieces of our UI on someone else's page to do one job; this
+  // way the resting state and the affordance are the same object, and the
+  // reading simply grows out of the thing you pressed.
+  const idle = el("div", "coc-idle");
+  ui.go = el("button", "coc-go");
+  ui.go.type = "button";
+  ui.go.appendChild(el("span", "coc-dot"));
+  ui.go.appendChild(el("span", "coc-golabel", "Check main image"));
+  ui.go.title = "Score the main image on this page (Alt+Shift+A)";
+  ui.go.addEventListener("click", () => {
+    ui.go.disabled = true;
+    chrome.runtime.sendMessage({ type: "checkMain" });
+  });
+  const hide = el("button", "coc-close", "×");
+  hide.type = "button";
+  hide.title = "Hide until the next check";
+  hide.setAttribute("aria-label", "Hide the Chain of Custody panel");
+  hide.addEventListener("click", dismiss);
+  idle.appendChild(ui.go);
+  idle.appendChild(hide);
+
   const body = el("div", "coc-body");
   ui.thumb = el("img", "coc-thumb");
   ui.thumb.alt = "";
@@ -97,12 +120,14 @@ function buildPanel() {
 
   ui.legend = el("div", "coc-legend");
 
+  panel.appendChild(idle);
   panel.appendChild(head);
   panel.appendChild(body);
   panel.appendChild(ui.legend);
 
   panel.addEventListener("mouseenter", () => { hovering = true; });
   panel.addEventListener("mouseleave", () => { hovering = false; });
+  panel.addEventListener("mousemove", () => { movedAt = Date.now(); });
 
   layer.appendChild(panel);
   renderLegend();
@@ -178,8 +203,13 @@ function clearHold() { clearTimeout(holdTimer); holdTimer = 0; }
 function scheduleIdle() {
   clearHold();
   holdTimer = setTimeout(() => {
-    // Do not pull a reading away from someone who is still looking at it.
-    if (hovering) { scheduleIdle(); return; }
+    // Do not pull a reading away from someone who is still looking at it -- but
+    // "the pointer is over the panel" is not that test. Clicking the button
+    // leaves the cursor parked right here, so hover alone would mean a reading
+    // started by the button never expires at all. Require movement *since the
+    // reading appeared*, which is what actually distinguishes reading it from
+    // having just pressed it.
+    if (hovering && movedAt && Date.now() - movedAt < HOLD_MS) { scheduleIdle(); return; }
     toIdle();
   }, HOLD_MS);
 }
@@ -192,6 +222,7 @@ function toIdle() {
   ui.score.textContent = "—";
   ui.word.textContent = IDLE_HINT;
   ui.thumb.removeAttribute("src");
+  if (ui.go) ui.go.disabled = false;
   ringTarget = null;
   ringBand(null);
   placeRing();
@@ -276,6 +307,7 @@ function showScanning(msg) {
   // Either the page told the worker which element it picked, or the worker is
   // reporting a URL the reader right-clicked.
   const el = msg.pick ? lastPick : findByUrl(msg.url);
+  movedAt = 0;
   panel.dataset.state = "busy";
   delete panel.dataset.band;
   ui.score.textContent = "…";
@@ -316,6 +348,7 @@ function showResult(msg) {
   else if (el && el.tagName === "IMG") ui.thumb.src = el.currentSrc || el.src;
   if (el) ringTarget = el;
 
+  movedAt = 0;
   panel.dataset.state = "result";
   panel.dataset.band = band.key;
   ui.score.textContent = pct(msg.p_ai, 0);
@@ -335,6 +368,13 @@ function showResult(msg) {
 /* ---------------------------------------------------------------- the wiring */
 
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+  if (msg.type === "overlay") {
+    if (layer) layer.style.display = msg.show ? "" : "none";
+    // Two frames, so the change is actually painted before the screenshot is
+    // taken -- otherwise the capture still contains the overlay we just hid.
+    requestAnimationFrame(() => requestAnimationFrame(() => reply({ ok: true })));
+    return true;
+  }
   if (msg.type === "findMain") {
     const el = pickMain();
     lastPick = el;
@@ -349,13 +389,20 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
 
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.aiBand) { CFG.aiBand = changes.aiBand.newValue; renderLegend(); }
+  if (changes.showButton) {
+    CFG.showButton = changes.showButton.newValue !== false;
+    if (CFG.showButton) ensurePanel(); else dismiss();
+  }
 });
 
 chrome.runtime.sendMessage({ type: "settings" }, (s) => {
   if (chrome.runtime.lastError || !s) return;
   CFG.aiBand = s.aiBand;
-  // The panel is not built until the first scan. Until you ask a question,
-  // this extension puts nothing on the page at all.
+  CFG.showButton = s.showButton !== false;
+  // With the button on, the panel is present from the start -- that is the
+  // whole point of it. With the button off the old rule holds: nothing is put
+  // on the page at all until you ask.
+  if (CFG.showButton) ensurePanel();
   addEventListener("scroll", reposition, { passive: true });
   addEventListener("resize", reposition, { passive: true });
 });

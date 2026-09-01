@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Chain of Custody — AI image radar",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Check the main image or video on a page for AI generation, ignoring sidebars and thumbnails. One reading at a time, in one small panel. Nothing is scored until you ask.",
   "permissions": ["storage", "contextMenus"],
   "host_permissions": ["<all_urls>"],

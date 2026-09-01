@@ -1,4 +1,5 @@
 const $ = (id) => document.getElementById(id);
+$("ver").textContent = "v" + chrome.runtime.getManifest().version;
 const KEYS = { apiBase: "", aiBand: 0.9 };
 
 function health() {

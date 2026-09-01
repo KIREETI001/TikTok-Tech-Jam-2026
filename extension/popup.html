@@ -5,6 +5,8 @@
   body{width:300px;margin:0;padding:16px;background:#0B0E11;color:#EDE9E1;
     font:14px/1.55 "IBM Plex Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
   h1{font:700 15px/1.2 Georgia,serif;margin:0 0 4px}
+  #ver{font:400 10px/1 ui-monospace,monospace;color:#5C6873;letter-spacing:.06em;
+    vertical-align:2px}
   .sub{color:#8A97A3;font-size:11.5px;margin:0 0 14px;text-wrap:pretty}
   .sub b{color:#EDE9E1;font-weight:600}
   label{display:block;font-size:11px;letter-spacing:.09em;text-transform:uppercase;
@@ -31,10 +33,10 @@
   .band em{font-style:normal;font-size:11.5px;color:#EDE9E1;display:block}
   .band small{font-size:10.5px;color:#8A97A3}
 </style>
-<h1>Chain of Custody</h1>
-<p class="sub"><b>Right-click an image → “Check this image for AI”.</b>
-One reading at a time, in one small panel. Nothing on a page is scored until
-you ask, and the reading clears itself after three seconds.</p>
+<h1>Chain of Custody <span id="ver"></span></h1>
+<p class="sub"><b>Right-click → “Check the main image on this page”,
+or press Alt+Shift+A.</b> It picks the largest thing near the centre and ignores
+sidebars and thumbnails. One reading at a time; it clears after three seconds.</p>
 
 <label for="api">Detector URL</label>
 <input id="api" type="text" placeholder="https://….trycloudflare.com" spellcheck="false">

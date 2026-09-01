@@ -1,11 +1,17 @@
 {
   "manifest_version": 3,
   "name": "Chain of Custody — AI image radar",
-  "version": "0.3.0",
-  "description": "Right-click any image to check whether it was AI-generated. One reading at a time, in one small panel. Nothing on the page is scored until you ask.",
+  "version": "0.4.0",
+  "description": "Check the main image or video on a page for AI generation, ignoring sidebars and thumbnails. One reading at a time, in one small panel. Nothing is scored until you ask.",
   "permissions": ["storage", "contextMenus"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },
+  "commands": {
+    "check-main": {
+      "suggested_key": { "default": "Alt+Shift+A" },
+      "description": "Check the main image on this page"
+    }
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "Chain of Custody",

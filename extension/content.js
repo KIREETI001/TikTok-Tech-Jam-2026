@@ -1,8 +1,9 @@
 /* Chain of Custody — one reading at a time.
  *
- * The interaction is deliberately narrow: you right-click an image, and one
- * panel in the corner reports on that image. Nothing else on the page is
- * scored, marked, or annotated.
+ * The interaction is deliberately narrow. You ask about one thing -- the main
+ * element on the page, or a specific image you right-click -- and one panel in
+ * the corner reports on it. Nothing else on the page is scored, marked, or
+ * annotated.
  *
  * This replaces per-image badges, which were the wrong shape twice over. They
  * scaled with the page rather than with your attention, so a feed of thirty
@@ -26,6 +27,7 @@
  */
 
 const HOLD_MS = 3000;
+const IDLE_HINT = "right-click → check the main image";
 
 let CFG = { aiBand: 0.9 };
 let layer = null;
@@ -37,6 +39,7 @@ let hovering = false;
 let ringTarget = null;
 let raf = 0;
 let lastThreshold = null;
+let lastPick = null;   // the element pickMain chose, for the ring and the thumbnail
 
 const pct = (x, d) => (x * 100).toFixed(d) + "%";
 
@@ -86,7 +89,7 @@ function buildPanel() {
   ui.thumb.alt = "";
   const read = el("div", "coc-read");
   ui.score = el("div", "coc-score", "—");
-  ui.word = el("div", "coc-word", "right-click an image to check it");
+  ui.word = el("div", "coc-word", IDLE_HINT);
   read.appendChild(ui.score);
   read.appendChild(ui.word);
   body.appendChild(ui.thumb);
@@ -187,7 +190,7 @@ function toIdle() {
   panel.dataset.state = "idle";
   delete panel.dataset.band;
   ui.score.textContent = "—";
-  ui.word.textContent = "right-click an image to check it";
+  ui.word.textContent = IDLE_HINT;
   ui.thumb.removeAttribute("src");
   ringTarget = null;
   ringBand(null);
@@ -206,15 +209,82 @@ function findByUrl(url) {
     .find((i) => (i.currentSrc || i.src) === url);
 }
 
-function showScanning(url) {
+/* ------------------------------------------------------- the main element
+ *
+ * On a feed, what you can right-click and what you are actually looking at are
+ * different things. TikTok's player is a <video>, which offers no image menu;
+ * the only <img> elements in reach are the sidebar recommendations and the
+ * avatars -- exactly the noise.
+ *
+ * So rank candidates by visible area weighted toward the centre of the
+ * viewport. Area alone picks a full-bleed background; centrality alone picks a
+ * tiny centred icon. Together they pick the thing the page is built around,
+ * which is what a reader means by "the main image".
+ *
+ * The ring drawn around the winner is not decoration here -- it is how you
+ * check that the heuristic agreed with you before you trust the number.
+ */
+function pickMain() {
+  const vw = innerWidth, vh = innerHeight;
+  const cx = vw / 2, cy = vh / 2;
+  let best = null, bestScore = 0;
+
+  for (const el of document.querySelectorAll("img, video")) {
+    const r = el.getBoundingClientRect();
+    const visW = Math.max(0, Math.min(r.right, vw) - Math.max(r.left, 0));
+    const visH = Math.max(0, Math.min(r.bottom, vh) - Math.max(r.top, 0));
+    if (visW < 120 || visH < 120) continue;        // sidebar thumbs, avatars, icons
+
+    const st = getComputedStyle(el);
+    if (st.visibility === "hidden" || st.display === "none" || +st.opacity === 0) continue;
+    if (el.tagName === "IMG" && !el.complete) continue;
+
+    // Distance from the viewport centre, normalised so it is resolution-independent.
+    const d = Math.hypot((r.left + r.width / 2 - cx) / vw, (r.top + r.height / 2 - cy) / vh);
+    const s = visW * visH * (1 - Math.min(d, 1) * 0.7);
+    if (s > bestScore) { bestScore = s; best = el; }
+  }
+  return best;
+}
+
+function describePick(el) {
+  const r = el.getBoundingClientRect();
+  return {
+    ok: true,
+    kind: el.tagName === "VIDEO" ? "video" : "img",
+    url: el.tagName === "IMG" ? (el.currentSrc || el.src) : null,
+    // Clamped to the viewport: a capture only contains what is on screen, so a
+    // rect running off the edge would crop the wrong region.
+    rect: {
+      x: Math.max(0, r.left),
+      y: Math.max(0, r.top),
+      w: Math.min(r.width, innerWidth - Math.max(0, r.left)),
+      h: Math.min(r.height, innerHeight - Math.max(0, r.top)),
+    },
+    // The viewport in CSS pixels. The worker divides the capture's own width by
+    // this to get the scale, rather than trusting devicePixelRatio: under OS
+    // display scaling the capture can come back at 2x while the page still
+    // reports a ratio of 1, and cropping by the wrong factor silently reads a
+    // completely different part of the screen.
+    view: { w: innerWidth, h: innerHeight },
+  };
+}
+
+function showScanning(msg) {
   ensurePanel();
   clearHold();
-  const img = findByUrl(url);
+  // Either the page told the worker which element it picked, or the worker is
+  // reporting a URL the reader right-clicked.
+  const el = msg.pick ? lastPick : findByUrl(msg.url);
   panel.dataset.state = "busy";
   delete panel.dataset.band;
   ui.score.textContent = "…";
   ui.word.textContent = "checking this image";
-  if (img) { ui.thumb.src = img.currentSrc || img.src; ringTarget = img; }
+  if (el) {
+    if (el.tagName === "IMG") ui.thumb.src = el.currentSrc || el.src;
+    else ui.thumb.removeAttribute("src");
+    ringTarget = el;
+  }
   ringBand("busy");
   placeRing();
 }
@@ -237,13 +307,25 @@ function showResult(msg) {
 
   lastThreshold = msg.threshold;
   const band = bandOf(msg.p_ai, msg.threshold, highBar());
-  const img = findByUrl(msg.url);
+  const el = findByUrl(msg.url) || lastPick;
 
-  if (img) { ui.thumb.src = img.currentSrc || img.src; ringTarget = img; }
+  // msg.thumb is the exact crop that was scored, so it beats re-deriving a
+  // preview from the element -- especially for a video, where there is no
+  // still to point an <img> at.
+  if (msg.thumb) ui.thumb.src = msg.thumb;
+  else if (el && el.tagName === "IMG") ui.thumb.src = el.currentSrc || el.src;
+  if (el) ringTarget = el;
+
   panel.dataset.state = "result";
   panel.dataset.band = band.key;
   ui.score.textContent = pct(msg.p_ai, 0);
-  ui.word.textContent = band.word + (msg.cached ? " · cached" : "");
+  // A capture has already been scaled by the browser and squeezed through the
+  // site's video codec. This model's headline finding is that resizing
+  // destroys the artifact, so that reading is weaker evidence and is labelled
+  // as such rather than presented at the same confidence as original bytes.
+  ui.word.textContent = band.word +
+    (msg.viaCapture ? " · from screen capture" : "") +
+    (msg.cached ? " · cached" : "");
   renderLegend();
   ringBand(band.key);
   placeRing();
@@ -252,9 +334,17 @@ function showResult(msg) {
 
 /* ---------------------------------------------------------------- the wiring */
 
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === "scanning") showScanning(msg.url);
+chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+  if (msg.type === "findMain") {
+    const el = pickMain();
+    lastPick = el;
+    reply(el ? describePick(el)
+             : { ok: false, error: "nothing large enough to check on this page" });
+    return true;                                    // keep the channel open
+  }
+  if (msg.type === "scanning") showScanning(msg);
   else if (msg.type === "result") showResult(msg);
+  return false;
 });
 
 chrome.storage.onChanged.addListener((changes) => {

@@ -1,14 +1,59 @@
 # Chain of Custody — Chrome extension (experimental)
 
-Checks a single image, on request, using the detector from this repository.
+Checks one thing at a time, on request, using the detector from this repository.
 
-Right-click an image → **Check this image for AI**. One small panel appears in
-the corner with that image's thumbnail, its score, and which band the score
-falls in. The image itself is ringed on the page, so there is never a question
-about which one the reading refers to. After three seconds the reading clears to
-an em dash and waits for the next question.
+Right-click anywhere → **Check the main image on this page**, or press
+**Alt+Shift+A**. One small panel appears in the corner with a thumbnail of what
+was checked, its score, and which band the score falls in. The element itself is
+ringed on the page, so there is never a question about what the reading refers
+to. After three seconds the reading clears to an em dash and waits for the next
+question.
+
+Right-click *directly on an image* and you also get **Check this image for AI**,
+which checks that specific image instead.
 
 Nothing on a page is scored, marked, or annotated until you ask.
+
+## What counts as "the main image"
+
+On a feed, what you can right-click and what you are actually looking at are
+different things. TikTok's player is a `<video>`, which offers no image context
+menu at all; the only `<img>` elements in reach are the sidebar recommendations
+and the avatars — exactly the noise.
+
+So candidates are ranked by **visible area weighted toward the centre of the
+viewport**. Area alone picks a full-bleed background; centrality alone picks a
+tiny centred icon. Together they pick the thing the page is built around.
+Anything under 120×120 visible pixels is skipped before ranking begins, which
+removes thumbnails, avatars and icons outright.
+
+The ring is how you audit that. If the heuristic picked the wrong thing you can
+see it immediately and fall back to right-clicking the image you meant.
+
+## Video
+
+Most of a feed is video, so it has to work — and it works differently.
+
+A `<video>` has no image URL to fetch, and the obvious fix (draw the frame to a
+canvas) is blocked outright: drawing cross-origin video taints the canvas, so
+reading it back throws. Instead the extension takes a **browser-level screenshot
+of the visible tab** and crops it to the player's rectangle, which same-origin
+rules never touch.
+
+That reading is honestly weaker, and the panel says so — it is labelled
+**"from screen capture"**. The frame has already been scaled to the player's
+size by the browser and already been through the site's video codec, and this
+detector's headline finding is that resizing destroys the artifact. Treat a
+capture as a hint; treat a reading taken from an image's original bytes as
+evidence.
+
+The crop scale is derived from the capture's own width divided by the viewport
+width in CSS pixels — **not** from `devicePixelRatio`. Under OS display scaling
+the screenshot comes back at 2× while the page still reports a ratio of 1, and
+cropping by the wrong factor does not fail: it silently reads a different part
+of the screen and returns a perfectly plausible number about the wrong pixels.
+That bug existed briefly, and is why the test suite now asserts on the captured
+pixels rather than only on the score.
 
 ## The three bands
 
@@ -96,12 +141,14 @@ toward generated and is not confident enough to say so.
 ## How it is wired
 
 ```
-background.js  the only thing that touches the network. Owns the right-click
-               menu item; fetches the image bytes (host permissions sidestep
-               the page's CORS and CSP, which a content script cannot), posts
-               to /predict, caches by URL, and sends the page two messages:
-               "scanning" immediately, then "result"
-content.js     draws the panel and the ring in one fixed overlay layer
+background.js  the only thing that touches the network. Owns both menu items
+               and the keyboard command; fetches image bytes (host permissions
+               sidestep the page's CORS and CSP, which a content script
+               cannot) or crops a captureVisibleTab screenshot for video;
+               posts to /predict, caches by URL, and sends the page two
+               messages: "scanning" immediately, then "result"
+content.js     picks the main element, draws the panel and the ring in one
+               fixed overlay layer
                appended to documentElement, so the host page's own tree and
                layout are never touched. Assigns the score to a band, holds
                the reading for 3s, then falls back to idle
@@ -111,7 +158,14 @@ popup.js       detector URL, AI band boundary, live health readout
 ## Verified in a browser
 
 The extension is exercised end to end under Playwright with the real detector
-running — 17 assertions covering: nothing injected before the first request;
+running. A feed-shaped fixture puts an **authentic** photo in the centre and
+**AI** images in every sidebar slot, so a mis-pick moves the score in an
+unmistakable direction; 12 further assertions cover the picker, the ring
+geometry, the video capture path, and — critically — that the captured pixels
+are not blank. An earlier suite passed on a solid black crop because it asserted
+only on the score.
+
+An earlier 17 assertions cover: nothing injected before the first request;
 the pending state; the panel naming its subject by thumbnail and ring; the ring
 tracking the right image and taking the band colour; all three bands landing on
 the right scores; the legend's numbers; a second scan replacing the first rather

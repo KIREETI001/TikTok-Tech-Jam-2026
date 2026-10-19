@@ -485,9 +485,7 @@ enforced in code and not only by convention.
   the frozen CLIP-B branch tested as iteration 6b, and the webapp's original
   batch-scoring and robustness endpoints.
 
-*(Replace or extend these lines with the split your team agrees on — they are
-recorded here from the commit history, which is the only record this
-repository has.)*
+Kireeti and Ziyang contributed equally to this project.
 
 ## License
 
